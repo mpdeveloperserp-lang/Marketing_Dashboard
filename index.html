@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MP Developers | Marketing Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --navy:#262B6E; --navy-light:#363C92; --navy-pale:#EBEDFA;
+    --gold:#EA7726; --gold-light:#F3A468; --teal:#363C92; --brick:#B85A17;
+    --bg:#F4F5F7; --card:#FFFFFF; --ink:#20244D; --muted:#666FA0; --border:#E4E5F0;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;}
+  h1,h2,h3,.display{font-family:'Fraunces',serif;}
+  .num{font-variant-numeric:tabular-nums;}
+  .hidden{display:none !important;}
+  /* ---------- Header ---------- */
+  header.top{background:linear-gradient(155deg,var(--navy) 0%,var(--navy-light) 100%);color:#fff;padding:34px 40px 26px;position:relative;overflow:hidden;}
+  header.top::after{content:"";position:absolute;inset:0;background-image:repeating-linear-gradient(90deg, rgba(201,162,75,0.06) 0 1px, transparent 1px 64px);pointer-events:none;}
+  .eyebrow{color:var(--gold-light);letter-spacing:.14em;text-transform:uppercase;font-size:11px;font-weight:600;margin:0 0 6px;}
+  header.top h1{font-size:30px;font-weight:600;margin:0 0 6px;color:#fff;}
+  .header-row{display:flex;align-items:center;gap:18px;}
+  .logo-badge{flex-shrink:0;width:60px;height:60px;background:#fff;border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.18);}
+  .logo-badge img{width:100%;height:100%;object-fit:cover;}
+  .tick-rule{display:flex;align-items:center;gap:3px;margin-top:18px;}
+  .tick-rule i{display:block;width:1px;height:8px;background:var(--gold);opacity:.55;}
+  .tick-rule i:nth-child(4n){height:13px;opacity:.9;}
+  main{max-width:1800px;margin:0 auto;padding:28px 32px 70px;}
+  /* ---------- Status badges ---------- */
+  .last-updated-badge{display:flex;align-items:center;gap:8px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;padding:9px 14px;margin-bottom:18px;font-size:12.5px;color:var(--navy);font-weight:600;}
+  .last-updated-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);flex-shrink:0;}
+  .last-updated-badge .muted-part{color:var(--muted);font-weight:400;}
+  .dashboard-loading{display:flex;align-items:center;gap:10px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:var(--navy);font-weight:600;}
+  .dashboard-loading .spin{width:15px;height:15px;flex-shrink:0;border-radius:50%;border:2.5px solid var(--border);border-top-color:var(--navy);animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .publish-status{margin-top:12px;font-size:12.5px;padding:9px 12px;border-radius:7px;}
+  .publish-status.ok{background:#EAF6F3;color:var(--teal);}
+  .publish-status.err{background:#FBEDE6;color:var(--brick);}
+  /* ---------- Upload panel ---------- */
+  .upload-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:26px 28px;margin-bottom:26px;box-shadow:0 1px 2px rgba(20,30,50,.04);}
+  .upload-card h2{font-size:17px;margin:0 0 4px;color:var(--navy);}
+  .upload-card .sub{color:var(--muted);font-size:13px;margin:0 0 20px;}
+  .upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;}
+  .drop{border:1.5px dashed #C7CEDA;border-radius:8px;padding:18px;text-align:center;background:#FBFCFD;cursor:pointer;transition:border-color .15s, background .15s;}
+  .drop:hover{border-color:var(--gold);background:#FEFCF6;}
+  .drop.filled{border-color:var(--teal);background:#F2F9F8;border-style:solid;}
+  .drop .label{font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px;}
+  .drop .fname{font-size:13.5px;color:var(--ink);font-weight:600;word-break:break-all;}
+  .drop .hint{font-size:12px;color:#98A2B3;margin-top:4px;}
+  .drop input{display:none;}
+  .btn{appearance:none;border:none;border-radius:7px;padding:11px 22px;font-family:'Inter',sans-serif;font-weight:600;font-size:13.5px;cursor:pointer;transition:transform .1s, opacity .15s;}
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--navy);color:#fff;}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-primary:not(:disabled):hover{background:var(--navy-light);}
+  .btn-ghost{background:transparent;color:var(--navy);border:1px solid var(--border);}
+  .btn-ghost:hover{border-color:var(--navy);}
+  .btn-row{display:flex;gap:12px;align-items:center;margin-top:20px;flex-wrap:wrap;}
+  .err{color:var(--brick);font-size:12.5px;margin-top:10px;display:none;}
+  .loaded-bar{display:none;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 20px;margin-bottom:26px;font-size:13px;gap:12px;}
+  .loaded-bar .files{color:var(--muted);}
+  .loaded-bar .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:8px;}
+  /* ---------- Dashboard ---------- */
+  #dashboard{display:none;}
+  .hero-split{display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:26px;box-shadow:0 1px 2px rgba(20,30,50,.04);}
+  @media (max-width:800px){.hero-split{grid-template-columns:1fr;}}
+  .hero-half{padding:24px 26px;position:relative;color:#fff;}
+  .hero-half.paid{background:linear-gradient(135deg,var(--navy-light) 0%,var(--navy) 100%);}
+  .hero-half.out{background:linear-gradient(135deg,var(--gold) 0%,var(--brick) 100%);}
+  .hero-half.avail{background:linear-gradient(135deg,var(--teal) 0%,var(--navy) 100%);}
+  .hero-half .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;opacity:.85;margin-bottom:8px;}
+  .hero-half .big{font-family:'Fraunces',serif;font-size:36px;font-weight:700;line-height:1;margin-bottom:6px;}
+  .hero-half .sub2{font-size:12.5px;opacity:.9;}
+  .hero-bar{height:6px;background:rgba(255,255,255,.35);position:relative;margin-top:8px;}
+  .hero-bar .fill{position:absolute;left:0;top:0;bottom:0;background:#fff;}
+  .filter-bar{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:10px;}
+  .filter-field{display:flex;flex-direction:column;gap:5px;min-width:170px;flex:1;}
+  .filter-field label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);}
+  .filter-bar .btn{flex-shrink:0;}
+  .multiselect{position:relative;}
+  .multiselect-btn{width:100%;text-align:left;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;color:var(--ink);background:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .multiselect-btn::after{content:'▾';float:right;color:var(--muted);margin-left:8px;}
+  .multiselect-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;max-height:280px;overflow-y:auto;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px;z-index:30;}
+  .multiselect.open .multiselect-panel{display:block;}
+  .ms-option{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;font-size:13px;cursor:pointer;white-space:nowrap;color:var(--ink);}
+  .ms-option:hover{background:var(--navy-pale);}
+  .ms-option input{margin:0;flex-shrink:0;}
+  .ms-empty{padding:6px 8px;font-size:12.5px;color:var(--muted);}
+  .filter-busy{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600;}
+  .filter-busy .spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--navy);animation:spin .6s linear infinite;}
+  .filter-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 2px 22px;font-size:12px;}
+  .filter-chip{background:var(--navy-pale);color:var(--navy);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-weight:600;}
+  .filter-note{color:var(--muted);}
+  .tabs{display:flex;gap:4px;margin:26px 0 22px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:20;padding-top:4px;overflow-x:auto;}
+  .tab-btn{appearance:none;border:none;background:transparent;padding:11px 20px;font-family:'Inter',sans-serif;font-weight:600;font-size:13.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s, border-color .15s;white-space:nowrap;}
+  .tab-btn:hover{color:var(--navy);}
+  .tab-btn.active{color:var(--navy);border-bottom-color:var(--gold);}
+  .page{display:block;scroll-margin-top:56px;}
+  .section-title{display:flex;align-items:baseline;gap:10px;margin:34px 0 14px;}
+  .section-title h2{font-size:16px;margin:0;color:var(--navy);text-transform:uppercase;letter-spacing:.06em;}
+  .section-title .line{flex:1;height:1px;background:var(--border);}
+  .section-title.group{margin-top:48px;}
+  .section-title.group h2{font-size:21px;color:var(--gold);text-transform:none;letter-spacing:0;font-family:'Fraunces',serif;font-weight:600;}
+  .section-title.group .line{background:var(--gold);opacity:.35;}
+  .section-title.first{margin-top:0;}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;}
+  @media (max-width:620px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+  .kpi-group-label{grid-column:1/-1;font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);margin:8px 2px -4px;}
+  .kpi-group-label:first-child{margin-top:2px;}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 16px 14px;position:relative;overflow:hidden;}
+  .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold);}
+  .kpi .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:8px;}
+  .kpi .val{font-family:'Fraunces',serif;font-size:23px;font-weight:600;color:var(--navy);line-height:1.1;}
+  .kpi .sub{font-size:11.5px;color:var(--muted);margin-top:6px;padding-bottom:12px;}
+  .kpi .sub b{color:var(--ink);}
+  .kpi[data-drill]{cursor:pointer;transition:box-shadow .15s,border-color .15s;}
+  .kpi[data-drill]:hover{box-shadow:0 4px 14px rgba(20,30,60,.10);border-color:var(--gold);}
+  .kpi[data-drill]:hover::after{content:"View records \2192";position:absolute;right:12px;bottom:10px;font-size:10.5px;font-weight:600;color:var(--gold);}
+  .modal-overlay{position:fixed;inset:0;background:rgba(15,20,35,.5);z-index:100;display:none;align-items:center;justify-content:center;padding:24px;}
+  .modal-box{background:var(--card);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.25);width:100%;max-width:1100px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;}
+  .modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--border);}
+  .modal-header h3{margin:0 0 4px;font-family:'Fraunces',serif;font-size:19px;color:var(--navy);}
+  .modal-sub{font-size:12.5px;color:var(--muted);}
+  .modal-close{appearance:none;border:none;background:transparent;font-size:22px;line-height:1;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px;flex-shrink:0;}
+  .modal-close:hover{background:var(--navy-pale);color:var(--navy);}
+  .modal-search{padding:10px 22px;border-bottom:1px solid var(--border);}
+  .modal-search input{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;}
+  .modal-body{overflow:auto;padding:0 22px;flex:1;}
+  .modal-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .modal-table thead th{position:sticky;top:0;background:var(--card);text-align:right;padding:9px 8px;border-bottom:2px solid var(--border);color:var(--navy);font-weight:700;white-space:nowrap;cursor:pointer;}
+  .modal-table tbody td{padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis;}
+  .modal-table tbody tr:hover{background:var(--navy-pale);}
+  .modal-table tfoot td{padding:9px 8px;font-weight:700;background:var(--navy-pale);color:var(--navy);white-space:nowrap;position:sticky;bottom:0;}
+  .modal-empty{text-align:center !important;color:var(--muted);padding:24px 8px !important;}
+  .modal-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;border-top:1px solid var(--border);}
+  .modal-count{font-size:12px;color:var(--muted);}
+  .chart-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;margin-bottom:18px;}
+  .chart-grid.even{grid-template-columns:1fr 1fr;}
+  .chart-grid.one{grid-template-columns:1fr;}
+  @media (max-width:900px){.chart-grid,.chart-grid.even{grid-template-columns:1fr;}}
+  .chart-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;}
+  .chart-card h3{font-size:13.5px;margin:0 0 14px;color:var(--navy);font-weight:600;font-family:'Inter',sans-serif;}
+  .chart-card .wrap{position:relative;height:300px;}
+  .chart-card .wrap.tall{height:360px;}
+  .chart-card .wrap.xtall{height:480px;}
+  .chart-empty-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12.5px;text-align:center;padding:20px;line-height:1.5;}
+  .chart-note{margin:10px 2px 0;font-size:12px;color:var(--muted);line-height:1.5;}
+  .footer-row{display:flex;justify-content:space-between;align-items:center;margin-top:30px;flex-wrap:wrap;gap:10px;}
+  .footer-note{font-size:11.5px;color:var(--muted);}
+  @media print{
+    .upload-card,.loaded-bar,.btn-row,.tabs,.filter-bar{display:none !important;}
+    body{background:#fff;}
+    .chart-card,.kpi{break-inside:avoid;}
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="header-row">
+    <div class="logo-badge"><img src="data:image/jpeg;base64,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" alt="MP Developers"></div>
+    <div class="header-text">
+      <p class="eyebrow">Created by MP Developers ERP Team</p>
+      <h1>Marketing Dashboard</h1>
+    </div>
+  </div>
+  <div class="tick-rule" id="tickRule"></div>
+</header>
+<main>
+  <div class="dashboard-loading" id="dashboardLoading" style="display:none;"><span class="spin"></span>Loading dashboard data…</div>
+  <div class="last-updated-badge" id="lastUpdatedBadge" style="display:none;"></div>
+  <div class="upload-card" id="uploadCard">
+    <h2>Load this month's report</h2>
+    <p class="sub">Upload the export from IN4 ERP. Nothing leaves your browser until you publish — the file is parsed locally.</p>
+    <div class="upload-grid">
+      <label class="drop" id="drop1">
+        <div class="label">1 &middot; Sales Promotion Requisition &amp; Payment Report</div>
+        <div class="fname" id="fname1">Click to choose file (.xlsx)</div>
+        <div class="hint">ERP report: "Sales Promotion Requisition Payment" &mdash; one workbook with a <b>Summary</b> sheet (one row per requisition) and a <b>Certificates</b> sheet (one row per invoice/certificate)</div>
+        <input type="file" id="file1" accept=".xlsx,.xls">
+      </label>
+      <label class="drop" id="drop2">
+        <div class="label">2 &middot; Expense Requisition Details Report</div>
+        <div class="fname" id="fname2">Click to choose file (.xlsx)</div>
+        <div class="hint">ERP report: "Expense Requisition Details" &mdash; Sales &amp; Marketing expense invoices and advances (Facebook, Google, referrals, brokerage…). Merged into the same vendor, payment and outstanding figures as Report 1</div>
+        <input type="file" id="file2" accept=".xlsx,.xls">
+      </label>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="genBtn" disabled>Generate &amp; publish dashboard</button>
+      <span class="footer-note">Upload either or both. A report you don't re-upload keeps its currently published data. Publishing updates the live dashboard for everyone with the link.</span>
+    </div>
+    <div class="err" id="errMsg"></div>
+    <div class="publish-status" id="publishStatus" style="display:none;"></div>
+  </div>
+  <div class="loaded-bar" id="loadedBar">
+    <div class="files"><span class="dot"></span><span id="loadedNames"></span></div>
+    <button class="btn btn-ghost" id="changeBtn">Upload new file</button>
+  </div>
+
+  <div id="dashboard">
+    <div class="hero-split" id="heroSplit"></div>
+    <div class="filter-bar">
+      <div class="filter-field"><label>Report</label>
+        <div class="multiselect" id="fSourceWrap"><button type="button" class="multiselect-btn">Both Reports</button><div class="multiselect-panel"></div></div></div>
+      <div class="filter-field"><label>Company</label>
+        <div class="multiselect" id="fCompanyWrap"><button type="button" class="multiselect-btn">All Companies</button><div class="multiselect-panel"></div></div></div>
+      <div class="filter-field"><label>Project</label>
+        <div class="multiselect" id="fProjectWrap"><button type="button" class="multiselect-btn">All Projects</button><div class="multiselect-panel"></div></div></div>
+      <div class="filter-field"><label>Channel</label>
+        <div class="multiselect" id="fChannelWrap"><button type="button" class="multiselect-btn">All Channels</button><div class="multiselect-panel"></div></div></div>
+      <div class="filter-field"><label>Activity Type</label>
+        <div class="multiselect" id="fActivityWrap"><button type="button" class="multiselect-btn">All Activity Types</button><div class="multiselect-panel"></div></div></div>
+      <div class="filter-field"><label>Financial Year</label>
+        <div class="multiselect" id="fFYWrap"><button type="button" class="multiselect-btn">All Financial Years</button><div class="multiselect-panel"></div></div></div>
+      <div class="filter-field"><label>Month</label>
+        <div class="multiselect" id="fMonthWrap"><button type="button" class="multiselect-btn">All Months</button><div class="multiselect-panel"></div></div></div>
+      <button class="btn btn-ghost" id="filterClear">Clear filters</button>
+      <span class="filter-busy" id="filterBusy" style="display:none;"><span class="spin"></span>Updating...</span>
+    </div>
+    <div class="filter-summary" id="filterSummary" style="display:none;"></div>
+
+    <div class="section-title group first"><h2>All Key Metrics</h2><div class="line"></div></div>
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-page="overview">Overview</button>
+      <button class="tab-btn" data-page="spend">Spend</button>
+      <button class="tab-btn" data-page="vendors">Vendors</button>
+      <button class="tab-btn" data-page="payments">Payments</button>
+      <button class="tab-btn" data-page="projects">Projects</button>
+    </div>
+
+    <div class="page" id="page-overview">
+      <div class="section-title group first"><h2>Overview</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Budget Utilisation</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Committed spend by financial year — paid / outstanding / unutilised (₹ L)</h3><div class="wrap tall"><canvas id="chFY"></canvas></div></div>
+        <div class="chart-card"><h3>Brand vs project-related spend (committed)</h3><div class="wrap tall"><canvas id="chPromoType"></canvas></div></div>
+      </div>
+      <div class="chart-grid one">
+        <div class="chart-card"><h3>Monthly committed spend (₹ L, by request / invoice date)</h3><div class="wrap"><canvas id="chMonthly"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="page" id="page-spend">
+      <div class="section-title group"><h2>Spend</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Channel &amp; Activity</h2><div class="line"></div></div>
+      <div class="chart-grid even">
+        <div class="chart-card"><h3>Committed spend by channel (₹ L)</h3><div class="wrap tall"><canvas id="chChannel"></canvas></div></div>
+        <div class="chart-card"><h3>Channel mix by financial year (₹ L)</h3><div class="wrap tall"><canvas id="chChannelFY"></canvas></div></div>
+      </div>
+      <div class="chart-grid one">
+        <div class="chart-card"><h3>Committed spend by activity / expense type (top 15, ₹ L)</h3><div class="wrap xtall"><canvas id="chActivity"></canvas></div>
+        <p class="chart-note">Channel groups Report 1's Activity Type and Report 2's Expense Sub Type (e.g. "BTL - …" → BTL; "CP - …", Referral Fee, Brokerage → Channel Partner &amp; Referrals; Facebook / Google → Digital). The mapping lives in <code>channelOf()</code> in this file if a type needs moving.</p></div>
+      </div>
+    </div>
+
+    <div class="page" id="page-vendors">
+      <div class="section-title group"><h2>Vendors</h2><div class="line"></div></div>
+      <div class="chart-grid even">
+        <div class="chart-card"><h3>Top 15 vendors by committed spend — promotion + expense (₹ L)</h3><div class="wrap xtall"><canvas id="chVendor"></canvas></div></div>
+        <div class="chart-card"><h3>Top 15 vendors by amount outstanding (₹ L)</h3><div class="wrap xtall"><canvas id="chVendorOut"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="page" id="page-payments">
+      <div class="section-title group"><h2>Payments</h2><div class="line"></div></div>
+      <div class="chart-grid even">
+        <div class="chart-card"><h3>Certified value by certificate status (₹ L)</h3><div class="wrap tall"><canvas id="chCertStatus"></canvas></div></div>
+        <div class="chart-card"><h3>Payments processed by financial year (₹ L, by processed date)</h3><div class="wrap tall"><canvas id="chPaidFY"></canvas></div></div>
+      </div>
+      <div class="chart-grid even">
+        <div class="chart-card"><h3>Certified value by report &amp; financial year (₹ L, by invoice date)</h3><div class="wrap"><canvas id="chSourceFY"></canvas></div></div>
+        <div class="chart-card"><h3>Outstanding by invoice age (₹ L, days since invoice date)</h3><div class="wrap"><canvas id="chAgeing"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="page" id="page-projects">
+      <div class="section-title group"><h2>Projects</h2><div class="line"></div></div>
+      <div class="chart-grid even">
+        <div class="chart-card"><h3>Project-tagged spend by project (top 15, ₹ L)</h3><div class="wrap xtall"><canvas id="chProject"></canvas></div>
+        <p class="chart-note" id="projectNote"></p></div>
+        <div class="chart-card"><h3>Spend by company — paid vs outstanding (₹ L)</h3><div class="wrap xtall"><canvas id="chCompany"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="footer-row">
+      <span class="footer-note" id="genNote"></span>
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn btn-ghost" id="exportBtn">Download all data (.xlsx)</button>
+        <button class="btn btn-ghost" id="printBtn">Print report</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="drillOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3 id="drillTitle"></h3><div class="modal-sub" id="drillSub"></div></div>
+      <button type="button" class="modal-close" id="drillClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-search"><input type="text" id="drillSearch" placeholder="Search vendor, activity, description, ref / invoice no..."></div>
+    <div class="modal-body">
+      <table class="modal-table">
+        <thead><tr id="drillThead"></tr></thead>
+        <tbody id="drillTbody"></tbody>
+        <tfoot><tr id="drillTfoot"></tr></tfoot>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <span class="modal-count" id="drillCount"></span>
+      <button type="button" class="btn btn-primary" id="drillDownload">Download Excel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){ let h=''; for(let i=0;i<40;i++) h+='<i></i>'; document.getElementById('tickRule').innerHTML=h; })();
+Chart.defaults.animation = false;
+Chart.defaults.font.family = "'Inter', sans-serif";
+
+/* ============ FIRESTORE ============
+   Same Firebase project as the Sales & CRM dashboard, but its own collection ('marketingDashboardData')
+   so publishing one never touches the other. Firestore Security Rules must allow read + write on this
+   collection (same as 'dashboardData' today) or publish/load will fail with a permission error. */
+const firebaseConfig = {
+  apiKey: "AIzaSyC65rACXQiJMzwN0dbTgxIns0Ggn6Myl0I",
+  authDomain: "mp-dashboard-f9bf5.firebaseapp.com",
+  projectId: "mp-dashboard-f9bf5",
+  storageBucket: "mp-dashboard-f9bf5.firebasestorage.app",
+  messagingSenderId: "717474685347",
+  appId: "1:717474685347:web:47075db36ddd4781267a16",
+  measurementId: "G-PLN09Z00JG"
+};
+let db = null, DASH_COL = null;
+try{
+  if(typeof firebase !== 'undefined'){
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    db.enablePersistence().catch(err=>console.warn('Firestore persistence not enabled:', err.code||err.message));
+    DASH_COL = db.collection('marketingDashboardData');
+  }
+}catch(e){ console.warn('Firebase unavailable — running in local-only mode', e); }
+
+// requisitions + certificates come from Report 1 (Sales Promotion Requisition Payment); expenses from
+// Report 2 (Expense Requisition Details). Each is stored raw; buildUnified() maps them onto one shared
+// shape (U.req / U.cert / U.adv) so every tile, chart and drill-down treats both reports identically.
+const RAW_KEYS = ['requisitions','certificates','expenses'];
+let RAW = { requisitions: [], certificates: [], expenses: [] };
+const SRC_PROMO = 'Promotion Requisition', SRC_EXP = 'Expense Requisition';
+let U = { req: [], cert: [], adv: [] };
+let lastPublished = null;
+const charts = {};
+
+/* ============ MASTER DATA ============ */
+// Same consolidation the Sales & CRM dashboard applies, so a project reads the same name in both.
+const PROJECT_NAME_OVERRIDE = {
+  'MP Pastel Petals':'Petals Phase II','MP Pave Petals':'Petals Phase II','MP Pear Petals':'Petals Phase II',
+  'MP Pearl Petals':'Petals Phase II','MP Prism Petals':'Petals Phase II','MP Puro Petals':'Petals Phase II',
+  'MP Pace Petals':'Petals Phase II','MP Palm Petals':'Petals Phase II','MP Paradise Petals':'Petals Phase II',
+  'MP Peach Petals':'Petals Phase II',
+  'MP Azure':'MP Green Bay','MP Basil':'MP Green Bay','MP Bayleaf':'MP Green Bay','MP Cascade':'MP Green Bay',
+  'MP Cedars':'MP Green Bay','MP Cilantro':'MP Green Bay','MP Oasis':'MP Green Bay','MP Orchid':'MP Green Bay',
+  'MP Magnus':'MP Green Bay CMDA','MP Merlin':'MP Green Bay CMDA',
+};
+const BRAND_BUCKET = 'Brand / Corporate (no project)';
+function normalizeProjectName(name){
+  if(name === null || name === undefined) return BRAND_BUCKET;
+  const t = (''+name).trim();
+  if(!t) return BRAND_BUCKET;
+  if(PROJECT_NAME_OVERRIDE[t]) return PROJECT_NAME_OVERRIDE[t];
+  const k = Object.keys(PROJECT_NAME_OVERRIDE).find(x=>x.toLowerCase()===t.toLowerCase());
+  return k ? PROJECT_NAME_OVERRIDE[k] : t;
+}
+// Activity Type -> Channel. Order matters: the first rule that matches wins.
+function channelOf(activity){
+  const t = (activity||'').toLowerCase().trim();
+  if(!t) return 'Other';
+  if(/^cp[\s_-]|channel partner|commission|brokerage|referral/.test(t)) return 'Channel Partner & Referrals';
+  if(/ad agency|pr agency|freelancer|consultant|retainer/.test(t)) return 'Agencies & Retainers';
+  if(/facebook|google|online portal|web ?site|influencer|saas|subscription|digital/.test(t)) return 'Digital';
+  if(/btl|stall|exhibition|rental|posm|signage|medians|sales material|collateral|^events?$|sponsorship|activation|business promotion/.test(t)) return 'BTL';
+  if(/atl|news ?paper|radio|tvc|tv\b|media|advertisement|endorsement|branding/.test(t)) return 'ATL & Brand';
+  return 'Other';
+}
+// Company names come through in two spellings for the same legal entity family — shorten for display.
+function shortCompany(c){
+  const t = (c||'').trim();
+  if(/constructions/i.test(t)) return 'MP Developers & Constructions Pvt Ltd';
+  return t || 'Unspecified';
+}
+
+/* ============ PARSING ============ */
+function normH(v){ return (v===null||v===undefined?'':''+v).replace(/\s+/g,' ').trim().toLowerCase(); }
+function num(v){
+  if(v===null||v===undefined||v==='') return 0;
+  if(typeof v==='number') return isFinite(v)?v:0;
+  const n = parseFloat((''+v).replace(/[,₹\s]/g,''));
+  return isNaN(n)?0:n;
+}
+function excelSerialToDate(serial){
+  if(typeof XLSX!=='undefined' && XLSX.SSF && XLSX.SSF.parse_date_code){
+    const d = XLSX.SSF.parse_date_code(serial);
+    if(d) return new Date(d.y, d.m-1, d.d);
+  }
+  return new Date(Math.round((serial-25569)*86400*1000));
+}
+const MON = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+function parseDateAny(v){
+  if(v===null||v===undefined||v==='') return null;
+  let d = null;
+  if(v instanceof Date) d = v;
+  else if(typeof v==='number' && isFinite(v)) d = excelSerialToDate(v);
+  else if(typeof v==='string'){
+    const s = v.trim();
+    let m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})$/);           // "Sep 11, 2023" (ERP format)
+    if(m && MON[m[1].toLowerCase()]!==undefined) d = new Date(+m[3], MON[m[1].toLowerCase()], +m[2]);
+    else if((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) d = new Date(+m[1], +m[2]-1, +m[3]);   // ISO (our stored form)
+    else if((m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/))) d = new Date(+m[3], +m[2]-1, +m[1]); // dd/mm/yyyy
+    else if(s){ const t = new Date(s); if(!isNaN(t)) d = t; }
+  }
+  return (d && !isNaN(d.getTime())) ? d : null;
+}
+function toISO(v){
+  const d = parseDateAny(v);
+  if(!d) return '';
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function fyOf(iso){
+  const d = parseDateAny(iso); if(!d) return null;
+  const y = d.getFullYear(), m = d.getMonth()+1;
+  const start = m>=4 ? y : y-1;
+  return { label:'FY'+start+'-'+String(start+1).slice(-2), sortKey:start };
+}
+function monthOf(iso){
+  const d = parseDateAny(iso); if(!d) return null;
+  return { key: d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'), label: d.toLocaleString('en-IN',{month:'short',year:'numeric'}), fy: fyOf(iso) };
+}
+function fmtDate(iso){ const d = parseDateAny(iso); return d ? d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'; }
+
+function sheetRows(ws){ return XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}); }
+function headerMap(rows, idHeader){
+  idHeader = idHeader || 'request id';
+  const idx = rows.findIndex(r => r && r.some(c => normH(c)===idHeader));
+  if(idx<0) return null;
+  const col = {};
+  rows[idx].forEach((v,i)=>{ const t=normH(v); if(t && col[t]===undefined) col[t]=i; });
+  return { idx, col };
+}
+function pickSheet(wb, re, fallbackIdx){
+  const n = wb.SheetNames.find(s => re.test(s));
+  return wb.Sheets[n || wb.SheetNames[fallbackIdx]];
+}
+// Fields shared by both sheets (the parent requisition) — read the same way from either.
+function parentFields(r, col){
+  const g = name => col[name]!==undefined ? r[col[name]] : null;
+  const activityType = (g('activity type')||'').toString().trim();
+  return {
+    company: shortCompany(g('company')),
+    project: normalizeProjectName(g('project')),
+    agent: (g('agent')||'').toString().trim() || 'Unspecified',
+    requestId: num(g('request id')),
+    createdDate: toISO(g('promotion created date')),
+    requestDate: toISO(g('promotion request date')) || toISO(g('promotion created date')),
+    promoType: (g('promotion type')||'').toString().trim() || 'Unspecified',
+    budget: num(g('promotion amount')),
+    status: (g('promotion status')||'').toString().trim() || 'Unspecified',
+    activityType: activityType || 'Unspecified',
+    channel: channelOf(activityType),
+    description: (g('activity description')||'').toString().trim(),
+  };
+}
+function parseRequisitions(wb){
+  const rows = sheetRows(pickSheet(wb, /summary/i, 0));
+  const h = headerMap(rows);
+  if(!h) throw new Error('Could not find the "Request Id" header row on the Summary sheet');
+  const {idx, col} = h, out = [];
+  const g = (r,name) => col[name]!==undefined ? r[col[name]] : null;
+  for(let i=idx+1;i<rows.length;i++){
+    const r = rows[i]; if(!r) continue;
+    if(typeof g(r,'request id')!=='number' && !(+g(r,'request id'))) continue;   // skips the trailing "Total" row
+    out.push({
+      ...parentFields(r,col),
+      advance: num(g(r,'advance amount')), advanceRecovered: num(g(r,'advance recovered')),
+      baseAmt: num(g(r,'base amt')), gstAmt: num(g(r,'gst amt')), tds: num(g(r,'tds')), tdsRecovered: num(g(r,'tds recovered')),
+      netAmount: num(g(r,'net amount')), paidAmount: num(g(r,'paid amount')),
+      totalPaid: num(g(r,'total paid')), outstanding: num(g(r,'amount outstanding')),
+      available: num(g(r,'promotion amount available')),
+    });
+  }
+  return out;
+}
+function parseCertificates(wb){
+  if(wb.SheetNames.length < 2 && !wb.SheetNames.some(s=>/certif/i.test(s))) return [];
+  const rows = sheetRows(pickSheet(wb, /certif/i, 1));
+  const h = headerMap(rows);
+  if(!h || h.col['cert id']===undefined) return [];
+  const {idx, col} = h, out = [];
+  const g = (r,name) => col[name]!==undefined ? r[col[name]] : null;
+  for(let i=idx+1;i<rows.length;i++){
+    const r = rows[i]; if(!r) continue;
+    if(typeof g(r,'request id')!=='number' && !(+g(r,'request id'))) continue;
+    out.push({
+      ...parentFields(r,col),
+      certId: num(g(r,'cert id')),
+      certStatus: (g(r,'cert status')||'').toString().trim() || 'Unspecified',
+      certCreatedDate: toISO(g(r,'certificate created date')),
+      invoiceDate: toISO(g(r,'invoice date')),
+      processedDate: toISO(g(r,'processed date')),
+      advance: num(g(r,'advance amount')), advanceRecovered: num(g(r,'advance recovered')),
+      baseAmt: num(g(r,'base amt')), gstAmt: num(g(r,'gst amt')), tds: num(g(r,'tds')),
+      netAmount: num(g(r,'net amount')), paidAmount: num(g(r,'paid amount')),
+      totalCertified: num(g(r,'total certified')), totalPaid: num(g(r,'total paid')),
+      outstanding: num(g(r,'amount outstanding')),
+    });
+  }
+  return out;
+}
+
+/* ---- Report 2: Expense Requisition Details ----
+   One row per expense requisition. "Type Of Pay" = Advance (money paid to a vendor before an invoice)
+   or Payment (an invoice; part of it may be settled by an earlier advance via "Advance Adjusted").
+   Row arithmetic (verified on every row of the export): Gross − Advance Adjusted = Net Certified;
+   Net Certified − Deduction Tax − Debit Note = Amount Payable; Outstanding ≤ Amount Payable. */
+function titleStatus(s){
+  const t = (s||'').toString().trim().toLowerCase();
+  if(t==='resubmit') return 'ReSubmit';
+  return t.replace(/\b\w/g,c=>c.toUpperCase()) || 'Unspecified';
+}
+function parseExpenses(wb){
+  const ws = wb.Sheets[wb.SheetNames.find(s=>/expense/i.test(s)) || wb.SheetNames[0]];
+  const rows = sheetRows(ws);
+  const h = headerMap(rows, 'expense id');
+  if(!h) throw new Error('Could not find the "Expense Id" header row in the Expense Requisition Details report');
+  const {idx, col} = h, out = [];
+  const g = (r,name) => col[name]!==undefined ? r[col[name]] : null;
+  const s = v => (v===null||v===undefined) ? '' : (''+v).trim();
+  for(let i=idx+1;i<rows.length;i++){
+    const r = rows[i]; if(!r) continue;
+    if(!(+g(r,'expense id'))) continue;   // skips blank / total rows
+    out.push({
+      company: shortCompany(g(r,'company name')), department: s(g(r,'department name')),
+      project: normalizeProjectName(g(r,'project name')),
+      expenseType: s(g(r,'expense type')), subType: s(g(r,'expense sub type')) || 'Unspecified',
+      vendor: s(g(r,'vendor name')) || s(g(r,'payment favouring')) || 'Unspecified',
+      favouring: s(g(r,'payment favouring')),
+      typeOfPay: s(g(r,'type of pay')) || 'Payment',
+      expenseId: num(g(r,'expense id')), invoiceNo: s(g(r,'invoice no')),
+      invoiceDate: toISO(g(r,'invoice date')), processedDate: toISO(g(r,'processed date')),
+      certified: num(g(r,'certified amount')), additionTax: num(g(r,'total addition tax')),
+      gross: num(g(r,'gross amount')), advanceAdjusted: num(g(r,'advance adjusted')),
+      netCertified: num(g(r,'net certified amount')), deductionTax: num(g(r,'total deduction tax')),
+      debitNote: num(g(r,'debit note adjusted')), payable: num(g(r,'amount payable')),
+      outstanding: num(g(r,'outstanding')), remarks: s(g(r,'remarks')),
+      modeOfPayment: s(g(r,'mode of payment')), status: s(g(r,'status')),
+    });
+  }
+  return out;
+}
+
+/* ---- Unify both reports onto one shape ----
+   Expense "Payment" rows are invoices: each becomes one requisition-equivalent (Committed = Gross Amount,
+   nothing left unutilised since it's already invoiced) AND one certificate-equivalent (Certified = Gross,
+   Paid = Gross − Outstanding, i.e. cash + advance adjusted + TDS, the same basis as the promotion report's
+   TOTAL PAID). Expense "Advance" rows are NOT spend (the invoice that later adjusts them already carries the
+   full value) — they feed only the advance tiles, so nothing is counted twice.
+   Vendor names are matched across both reports ignoring case, punctuation and Pvt/Ltd/Limited suffixes. */
+function vendorKey(n){ return (n||'').toLowerCase().replace(/\b(pvt|private|ltd|limited|llp)\b/g,'').replace(/[^a-z0-9]/g,'') || 'unspecified'; }
+function buildUnified(){
+  const req = [], cert = [], adv = [];
+  RAW.requisitions.forEach(r=>req.push({ ...r, source:SRC_PROMO, refId:'PR-'+r.requestId }));
+  RAW.certificates.forEach(c=>cert.push({ ...c, source:SRC_PROMO, refId:'PR-'+c.requestId, certRef:'CERT-'+c.certId, invoiceNo:'', advanceAdjusted:c.advanceRecovered||0 }));
+  RAW.expenses.forEach(e=>{
+    const common = {
+      source:SRC_EXP, refId:'EX-'+e.expenseId, requestId:e.expenseId, company:e.company, project:e.project, agent:e.vendor,
+      requestDate:e.invoiceDate, createdDate:e.invoiceDate,
+      promoType: e.project===BRAND_BUCKET ? 'Brand Promotion Related' : 'Project Related',
+      activityType:e.subType, channel:channelOf(e.subType), description:e.remarks,
+    };
+    const paid = e.gross - e.outstanding;
+    if(/advance/i.test(e.typeOfPay)){
+      adv.push({ ...common, requested:e.gross, given:paid, unpaid:e.outstanding, tds:e.deductionTax, status:titleStatus(e.status), processedDate:e.processedDate });
+      return;
+    }
+    const st = titleStatus(e.status);
+    req.push({ ...common, budget:e.gross, status: (st==='Submitted'||st==='ReSubmit') ? st : 'Approved',
+      advance:0, advanceRecovered:0, baseAmt:e.gross-e.additionTax, gstAmt:e.additionTax, tds:e.deductionTax, tdsRecovered:0,
+      netAmount:e.netCertified, paidAmount:e.payable-e.outstanding, totalPaid:paid, outstanding:e.outstanding, available:0 });
+    cert.push({ ...common, certId:e.expenseId, certRef:'EX-'+e.expenseId, certStatus:st, certCreatedDate:e.invoiceDate,
+      invoiceDate:e.invoiceDate, processedDate:e.processedDate, invoiceNo:e.invoiceNo,
+      advance:0, advanceRecovered:e.advanceAdjusted, advanceAdjusted:e.advanceAdjusted,
+      baseAmt:e.gross-e.additionTax, gstAmt:e.additionTax, tds:e.deductionTax, netAmount:e.netCertified, paidAmount:e.payable-e.outstanding,
+      totalCertified:e.gross, totalPaid:paid, outstanding:e.outstanding });
+  });
+  // One display name per vendor across both reports — the spelling carrying the most spend wins.
+  const best = {};
+  [...req, ...adv].forEach(r=>{ const k=vendorKey(r.agent); const v=(r.budget||r.requested||0); (best[k]=best[k]||{}); best[k][r.agent]=(best[k][r.agent]||0)+v+1e-9; });
+  const nameOf = {}; Object.entries(best).forEach(([k,m])=> nameOf[k] = Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0]);
+  [req, cert, adv].forEach(arr=>arr.forEach(r=>{ r.agent = nameOf[vendorKey(r.agent)] || r.agent; }));
+  U = { req, cert, adv };
+}
+
+/* ============ PUBLISH / LOAD (chunked, same approach as Sales & CRM) ============ */
+const CHUNK_MAX = 900000, BATCH_MAX = 8000000;
+const u8len = s => new TextEncoder().encode(s).length;
+function splitChunks(str){
+  const parts=[]; let i=0;
+  if(!str.length) return [''];
+  while(i<str.length){
+    let end = Math.min(str.length, i+CHUNK_MAX);
+    while(end>i+1 && u8len(str.slice(i,end))>CHUNK_MAX) end = i+Math.max(1,Math.floor((end-i)*0.9));
+    parts.push(str.slice(i,end)); i=end;
+  }
+  return parts;
+}
+async function publish(fileNames){
+  const el = document.getElementById('publishStatus');
+  if(!DASH_COL){
+    el.className='publish-status err'; el.textContent='Not published — Firebase could not be reached from this page. The dashboard below is a local preview only.'; el.style.display='block';
+    return;
+  }
+  try{
+    const writes=[], chunkCounts={};
+    RAW_KEYS.forEach(k=>{
+      const parts = splitChunks(JSON.stringify(RAW[k]));
+      chunkCounts[k]=parts.length;
+      parts.forEach((p,i)=>writes.push({id:`chunk_${k}_${i}`, data:p}));
+    });
+    let group=[], bytes=0; const groups=[];
+    writes.forEach(w=>{ const b=u8len(w.data)+200; if(group.length && bytes+b>BATCH_MAX){groups.push(group);group=[];bytes=0;} group.push(w); bytes+=b; });
+    if(group.length) groups.push(group);
+    for(const gr of groups){ const batch=db.batch(); gr.forEach(w=>batch.set(DASH_COL.doc(w.id),{data:w.data})); await batch.commit(); }
+    const generatedAt = new Date().toISOString();
+    await DASH_COL.doc('meta').set({generatedAt, sourceFiles:fileNames, chunkCounts});
+    lastPublished = {at:generatedAt, files:fileNames}; updateLastUpdated();
+    el.className='publish-status ok'; el.textContent='Published — everyone with the link now sees this data.'; el.style.display='block';
+  }catch(err){
+    console.error(err);
+    el.className='publish-status err'; el.textContent='Publishing failed ('+err.message+'). Check your connection and Firestore rules for "marketingDashboardData", then try again.'; el.style.display='block';
+  }
+}
+async function loadPublished(){
+  if(!DASH_COL) return false;
+  try{
+    const meta = await DASH_COL.doc('meta').get();
+    if(!meta.exists) return false;
+    const m = meta.data(), cc = m.chunkCounts||{}, reads=[];
+    RAW_KEYS.forEach(k=>{ for(let i=0;i<(cc[k]||0);i++) reads.push({k,i,ref:DASH_COL.doc(`chunk_${k}_${i}`)}); });
+    const snaps = await Promise.all(reads.map(r=>r.ref.get()));
+    const parts={};
+    for(let j=0;j<reads.length;j++){
+      if(!snaps[j].exists){ console.error('Missing chunk', reads[j]); return false; }
+      (parts[reads[j].k] = parts[reads[j].k]||[])[reads[j].i] = snaps[j].data().data;
+    }
+    const nr={}; RAW_KEYS.forEach(k=> nr[k] = parts[k] ? JSON.parse(parts[k].join('')) : []);
+    RAW = nr;
+    lastPublished = {at:m.generatedAt, files:m.sourceFiles||[]};
+    return true;
+  }catch(err){ console.error('Load failed', err); return false; }
+}
+function updateLastUpdated(){
+  const el = document.getElementById('lastUpdatedBadge');
+  if(!lastPublished){ el.style.display='none'; return; }
+  el.style.display='flex';
+  const at = new Date(lastPublished.at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
+  const fl = (lastPublished.files||[]).filter(Boolean); const f = fl.length ? ` <span class="muted-part">&middot; ${fl.join(', ')}</span>` : '';
+  el.innerHTML = `<span class="dot"></span>Data as of ${at}${f}`;
+}
+function showDashboard(label){
+  document.getElementById('uploadCard').style.display='none';
+  document.getElementById('loadedBar').style.display='flex';
+  document.getElementById('loadedNames').textContent = label;
+  document.getElementById('dashboard').style.display='block';
+  buildUnified(); resetFilters(); buildFilterOptions(); render();
+}
+(async function init(){
+  document.getElementById('dashboardLoading').style.display='flex';
+  const ok = await loadPublished();
+  document.getElementById('dashboardLoading').style.display='none';
+  if(ok){ updateLastUpdated(); const fl=(lastPublished.files||[]).filter(Boolean); showDashboard('Showing published dashboard' + (fl.length ? ' ('+fl.join(' + ')+')' : '')); }
+})();
+
+/* ============ UPLOAD ============ */
+let file1 = null, file2 = null;
+['1','2'].forEach(n=>{
+  document.getElementById('file'+n).addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0]; if(!f) return;
+    if(n==='1') file1 = f; else file2 = f;
+    document.getElementById('fname'+n).textContent = f.name; document.getElementById('drop'+n).classList.add('filled');
+    document.getElementById('genBtn').disabled = false;
+  });
+});
+function readWB(file){
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>{ try{ res(XLSX.read(new Uint8Array(e.target.result),{type:'array'})); }catch(x){rej(x);} }; r.onerror=rej; r.readAsArrayBuffer(file); });
+}
+document.getElementById('genBtn').addEventListener('click', async ()=>{
+  const errEl = document.getElementById('errMsg'); errEl.style.display='none';
+  const btn = document.getElementById('genBtn');
+  try{
+    const next = { ...RAW };
+    if(file1){
+      const wb = await readWB(file1);
+      const req = parseRequisitions(wb);
+      if(!req.length) throw new Error('No requisition rows were recognised on the Summary sheet of Report 1');
+      next.requisitions = req; next.certificates = parseCertificates(wb);
+    }
+    if(file2){
+      const exp = parseExpenses(await readWB(file2));
+      if(!exp.length) throw new Error('No expense rows were recognised in Report 2');
+      next.expenses = exp;
+    }
+    RAW = next;
+    const prevFiles = (lastPublished && lastPublished.files) || [];
+    const files = [file1 ? file1.name : prevFiles[0], file2 ? file2.name : prevFiles[1]].map(f=>f||'');
+    showDashboard(`Loaded ${RAW.requisitions.length.toLocaleString('en-IN')} promotion requisitions, ${RAW.certificates.length.toLocaleString('en-IN')} certificates, ${RAW.expenses.length.toLocaleString('en-IN')} expense requisitions`);
+    document.getElementById('genNote').textContent = 'Generated '+new Date().toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})+' from the uploaded reports.';
+    btn.disabled = true; btn.textContent = 'Publishing…';
+    await publish(files);
+    btn.disabled = false; btn.textContent = 'Generate & publish dashboard';
+  }catch(err){
+    console.error(err);
+    errEl.textContent = 'Could not read the file(s): '+err.message+'. Report 1 should be the Sales Promotion Requisition Payment export and Report 2 the Expense Requisition Details export from IN4 ERP.';
+    errEl.style.display='block';
+  }
+});
+document.getElementById('changeBtn').addEventListener('click', ()=>{
+  document.getElementById('uploadCard').style.display='block';
+  document.getElementById('loadedBar').style.display='none';
+  document.getElementById('publishStatus').style.display='none';
+});
+document.getElementById('printBtn').addEventListener('click', ()=>window.print());
+
+/* ============ FILTERS ============
+   Report 1 rows filter by PROMOTION REQUEST DATE (certificates inherit their parent requisition's date);
+   Report 2 rows filter by INVOICE DATE (an expense requisition is raised against its invoice). Either way
+   Committed = Certified + Unutilised and Certified = Paid + Outstanding reconcile for any selection. The
+   "by financial year" trend charts ignore FY/Month (they'd collapse to one bar) but respect the rest. */
+const FILTERS = [
+  {key:'source',   wrap:'fSourceWrap',   all:'Both Reports',        field:'source'},
+  {key:'company',  wrap:'fCompanyWrap',  all:'All Companies',       field:'company'},
+  {key:'project',  wrap:'fProjectWrap',  all:'All Projects',        field:'project'},
+  {key:'channel',  wrap:'fChannelWrap',  all:'All Channels',        field:'channel'},
+  {key:'activity', wrap:'fActivityWrap', all:'All Activity Types',  field:'activityType'},
+  {key:'fy',       wrap:'fFYWrap',       all:'All Financial Years'},
+  {key:'month',    wrap:'fMonthWrap',    all:'All Months'},
+];
+let filterState = {}; const filterOptions = {};
+function resetFilters(){ FILTERS.forEach(f=>filterState[f.key]=[]); }
+resetFilters();
+function msRender(f){
+  const wrap = document.getElementById(f.wrap), panel = wrap.querySelector('.multiselect-panel'), btn = wrap.querySelector('.multiselect-btn');
+  const opts = filterOptions[f.key]||[], sel = filterState[f.key];
+  panel.innerHTML = opts.length ? opts.map(o=>`<label class="ms-option"><input type="checkbox" value="${escAttr(o.value)}" ${sel.includes(o.value)?'checked':''}><span>${esc(o.label)}</span></label>`).join('') : '<div class="ms-empty">No options available</div>';
+  msLabel(f);
+}
+function msLabel(f){
+  const btn = document.getElementById(f.wrap).querySelector('.multiselect-btn'), sel = filterState[f.key], opts = filterOptions[f.key]||[];
+  if(!sel.length) btn.textContent = f.all;
+  else if(sel.length===1){ const o = opts.find(x=>x.value===sel[0]); btn.textContent = o?o.label:sel[0]; }
+  else btn.textContent = sel.length+' selected';
+}
+function esc(s){ return (''+(s??'')).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const escAttr = esc;
+function uniqSorted(arr){ return [...new Set(arr)].sort((a,b)=>a.localeCompare(b)); }
+function buildFilterOptions(){
+  const R = U.req.concat(U.adv);
+  filterOptions.source = [SRC_PROMO, SRC_EXP].filter(s=>R.some(r=>r.source===s)).map(v=>({value:v,label:v}));
+  filterOptions.company = uniqSorted(R.map(r=>r.company)).map(v=>({value:v,label:v}));
+  const projs = uniqSorted(R.map(r=>r.project).filter(p=>p!==BRAND_BUCKET));
+  filterOptions.project = (R.some(r=>r.project===BRAND_BUCKET)?[BRAND_BUCKET]:[]).concat(projs).map(v=>({value:v,label:v}));
+  filterOptions.channel = uniqSorted(R.map(r=>r.channel)).map(v=>({value:v,label:v}));
+  filterOptions.activity = uniqSorted(R.map(r=>r.activityType)).map(v=>({value:v,label:v}));
+  const fy = new Map(); R.forEach(r=>{ const f=fyOf(r.requestDate); if(f) fy.set(f.label,f.sortKey); });
+  filterOptions.fy = [...fy.entries()].sort((a,b)=>a[1]-b[1]).map(([l])=>({value:l,label:l}));
+  buildMonthOptions();
+  FILTERS.forEach(f=>{ wireMs(f); msRender(f); });
+}
+function buildMonthOptions(){
+  const mm = new Map();
+  U.req.concat(U.adv).forEach(r=>{ const m=monthOf(r.requestDate); if(!m) return; if(filterState.fy.length && (!m.fy || !filterState.fy.includes(m.fy.label))) return; mm.set(m.key,m.label); });
+  filterOptions.month = [...mm.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([k,l])=>({value:k,label:l}));
+  filterState.month = filterState.month.filter(v=>filterOptions.month.some(o=>o.value===v));
+}
+function wireMs(f){
+  const wrap = document.getElementById(f.wrap);
+  if(wrap.dataset.wired) return; wrap.dataset.wired='1';
+  const btn = wrap.querySelector('.multiselect-btn'), panel = wrap.querySelector('.multiselect-panel');
+  btn.addEventListener('click', e=>{ e.stopPropagation(); const open = wrap.classList.contains('open'); document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open')); if(!open) wrap.classList.add('open'); });
+  panel.addEventListener('click', e=>e.stopPropagation());
+  panel.addEventListener('change', e=>{
+    if(e.target.type!=='checkbox') return;
+    const v = e.target.value, sel = filterState[f.key];
+    if(e.target.checked){ if(!sel.includes(v)) sel.push(v); } else filterState[f.key] = sel.filter(x=>x!==v);
+    msLabel(f);
+    if(f.key==='fy'){ filterState.month=[]; buildMonthOptions(); msRender(FILTERS.find(x=>x.key==='month')); }
+    deferRender();
+  });
+}
+document.addEventListener('click', ()=>document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open')));
+document.getElementById('filterClear').addEventListener('click', ()=>{ resetFilters(); buildMonthOptions(); FILTERS.forEach(msRender); deferRender(); });
+function deferRender(){
+  const b = document.getElementById('filterBusy'); b.style.display='inline-flex';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ try{ render(); } finally { b.style.display='none'; } }));
+}
+function matchDims(r){
+  return FILTERS.every(f=> !f.field || !filterState[f.key].length || filterState[f.key].includes(r[f.field]));
+}
+function matchDate(r){
+  const fy = filterState.fy, mo = filterState.month;
+  if(!fy.length && !mo.length) return true;
+  if(mo.length){ const m = monthOf(r.requestDate); return !!m && mo.includes(m.key); }
+  const f = fyOf(r.requestDate); return !!f && fy.includes(f.label);
+}
+const periodActive = () => filterState.fy.length>0 || filterState.month.length>0;
+
+/* ============ FORMATTING ============ */
+function fmtINRCr(n){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  const a = Math.abs(n);
+  if(a>=1e7) return '₹'+(n/1e7).toLocaleString('en-IN',{maximumFractionDigits:2})+' Cr';
+  if(a>=1e5) return '₹'+(n/1e5).toLocaleString('en-IN',{maximumFractionDigits:2})+' L';
+  return '₹'+Math.round(n).toLocaleString('en-IN');
+}
+function fmtNum(n){ return (n===null||n===undefined||isNaN(n)) ? '—' : Math.round(n).toLocaleString('en-IN'); }
+function fmtPct(n){ return (n===null||n===undefined||!isFinite(n)) ? '—' : n.toLocaleString('en-IN',{maximumFractionDigits:1})+'%'; }
+const sum = (rows, k) => rows.reduce((a,r)=>a+(r[k]||0),0);
+const L = v => v/1e5;
+
+/* ============ DERIVED STATE ============ */
+let REQ = [], CERT = [], ADV = [], REQ_DIMS = [], CERT_DIMS = [], ADV_DIMS = [];
+const drill = {};
+function groupBy(rows, keyFn, fields){
+  const m = {};
+  rows.forEach(r=>{ const k = keyFn(r); if(!m[k]){ m[k]={key:k, count:0}; fields.forEach(f=>m[k][f]=0); } m[k].count++; fields.forEach(f=>m[k][f]+= (r[f]||0)); });
+  return Object.values(m);
+}
+function vendorSummary(reqRows, certRows){
+  const m = {};
+  const get = a => m[a] = m[a] || {agent:a, requisitions:0, promoBudget:0, expenseInvoiced:0, budget:0, certified:0, totalPaid:0, outstanding:0, available:0, channels:new Set(), sources:new Set()};
+  reqRows.forEach(r=>{
+    const v = get(r.agent);
+    v.requisitions++; v.budget+=r.budget; v.totalPaid+=r.totalPaid; v.outstanding+=r.outstanding; v.available+=r.available;
+    if(r.source===SRC_PROMO) v.promoBudget+=r.budget; else v.expenseInvoiced+=r.budget;
+    v.channels.add(r.channel); v.sources.add(r.source===SRC_PROMO?'Promotion':'Expense');
+  });
+  certRows.forEach(c=>{ get(c.agent).certified += c.totalCertified; });
+  return Object.values(m).filter(v=>v.requisitions).map(v=>({...v, channels:[...v.channels].join(', '), sources:[...v.sources].join(' + ')})).sort((a,b)=>b.budget-a.budget);
+}
+// Advances across both reports. Report 1: advance & recovery are per requisition. Report 2: advances are
+// their own rows (paid = Gross − Outstanding) and are recovered when a later invoice shows "Advance Adjusted",
+// so recovery is tracked per vendor.
+function advanceRows(){
+  const rows = REQ.filter(r=>r.source===SRC_PROMO && (r.advance||r.advanceRecovered))
+    .map(r=>({source:r.source, refId:r.refId, requestDate:r.requestDate, agent:r.agent, activityType:r.activityType, description:r.description,
+      advance:r.advance, advanceRecovered:r.advanceRecovered, advancePending:r.advance-r.advanceRecovered, advanceUnpaid:0}));
+  const ev = {};
+  const get = a => ev[a] = ev[a] || {source:SRC_EXP, refId:'(vendor total)', requestDate:'', agent:a, activityType:new Set(), description:'', advance:0, advanceRecovered:0, advanceUnpaid:0, n:0};
+  ADV.forEach(a=>{ const v=get(a.agent); v.advance+=a.given; v.advanceUnpaid+=a.unpaid; v.n++; v.activityType.add(a.activityType); if(!v.requestDate || a.requestDate>v.requestDate) v.requestDate=a.requestDate; });
+  CERT.filter(c=>c.source===SRC_EXP && c.advanceAdjusted).forEach(c=>{ get(c.agent).advanceRecovered += c.advanceAdjusted; });
+  Object.values(ev).forEach(v=>rows.push({...v, activityType:[...v.activityType].join(', ')||'—', description:`${v.n} advance request${v.n===1?'':'s'} (latest date shown)`, advancePending:v.advance-v.advanceRecovered}));
+  return rows;
+}
+function render(){
+  REQ_DIMS = U.req.filter(matchDims);
+  CERT_DIMS = U.cert.filter(matchDims);
+  ADV_DIMS = U.adv.filter(matchDims);
+  REQ = REQ_DIMS.filter(matchDate);
+  CERT = CERT_DIMS.filter(matchDate);
+  ADV = ADV_DIMS.filter(matchDate);
+  renderFilterSummary();
+  renderHero();
+  renderKPIs();
+  renderCharts();
+  requestAnimationFrame(()=>Object.values(charts).forEach(c=>c && c.resize && c.resize()));
+}
+function renderFilterSummary(){
+  const chips = [];
+  ['source','company','project','channel','activity'].forEach(k=>filterState[k].forEach(v=>chips.push(v)));
+  if(filterState.month.length) filterState.month.forEach(v=>{ const o=filterOptions.month.find(x=>x.value===v); chips.push(o?o.label:v); });
+  else filterState.fy.forEach(v=>chips.push(v));
+  const el = document.getElementById('filterSummary');
+  if(!chips.length){ el.style.display='none'; return; }
+  el.style.display='flex';
+  el.innerHTML = chips.map(c=>`<span class="filter-chip">${esc(c)}</span>`).join('') + `<span class="filter-note">Financial Year / Month go by Promotion Request Date (Report 1) and Invoice Date (Report 2). "By financial year" trend charts always show the full timeline for the other selections.</span>`;
+}
+function bySource(rows, k){ let p=0,x=0; rows.forEach(r=>{ if(r.source===SRC_PROMO) p+=(r[k]||0); else x+=(r[k]||0); }); return {p,x,t:p+x}; }
+const hasExp = () => U.req.some(r=>r.source===SRC_EXP) || U.adv.length>0;
+const hasPromo = () => U.req.some(r=>r.source===SRC_PROMO);
+function split(o, labelP, labelX){
+  if(!hasExp()) return ''; if(!hasPromo()) return '';
+  return `${fmtINRCr(o.p)} ${labelP||'promotion'} + ${fmtINRCr(o.x)} ${labelX||'expense'}`;
+}
+function renderHero(){
+  const budget = sum(REQ,'budget'), paid = sum(REQ,'totalPaid'), out = sum(REQ,'outstanding'), avail = sum(REQ,'available');
+  const pct = v => budget ? v/budget*100 : 0;
+  const card = (cls,lbl,v,sub) => `<div class="hero-half ${cls}"><div class="lbl">${lbl}</div><div class="big num">${fmtINRCr(v)}</div><div class="sub2">${sub}</div><div class="hero-bar"><div class="fill" style="width:${Math.max(0,Math.min(100,pct(v)))}%"></div></div></div>`;
+  const base = hasExp() ? 'committed spend' : 'approved budget';
+  document.getElementById('heroSplit').innerHTML =
+    card('paid','Total Paid',paid,`${fmtPct(pct(paid))} of ${fmtINRCr(budget)} ${base}`) +
+    card('out','Amount Outstanding',out,`${fmtPct(pct(out))} of ${base} &middot; certified, not yet paid`) +
+    card('avail','Budget Unutilised',avail,`${fmtPct(pct(avail))} of ${base} &middot; approved, not yet invoiced`);
+}
+function renderKPIs(){
+  const budget = bySource(REQ,'budget'), certified = bySource(CERT,'totalCertified'), paid = bySource(REQ,'totalPaid');
+  const out = bySource(REQ,'outstanding'), avail = sum(REQ,'available');
+  const approved = REQ.filter(r=>r.status.toLowerCase()==='approved');
+  const pending = REQ.filter(r=>r.status.toLowerCase()!=='approved');
+  const vendors = vendorSummary(REQ, CERT);
+  const advRows = advanceRows();
+  const advGiven = sum(advRows,'advance'), advRec = sum(advRows,'advanceRecovered'), advUnpaid = sum(advRows,'advanceUnpaid');
+  const advPending = advRows.filter(r=>Math.abs(r.advancePending)>0.5).sort((a,b)=>b.advancePending-a.advancePending);
+  const certsUnpaid = CERT.filter(c=>c.certStatus.toLowerCase()!=='paid');
+  const certsOut = CERT.filter(c=>c.outstanding>0.5).map(withAge).sort((a,b)=>(b.ageDays??-1)-(a.ageDays??-1));
+  // TDS: certificates/invoices, plus TDS withheld on Report 2 advance payments (shown as their own rows in the drill-down)
+  const advTdsRows = ADV.filter(a=>a.tds).map(a=>({...a, certRef:a.refId, certStatus:'Advance ('+a.status+')', invoiceDate:a.requestDate, baseAmt:0, gstAmt:0, totalCertified:0, totalPaid:0, outstanding:0}));
+  const tdsTotal = sum(CERT,'tds') + sum(advTdsRows,'tds');
+  const nP = REQ.filter(r=>r.source===SRC_PROMO).length, nX = REQ.length - nP;
+  const top = vendors[0];
+  Object.assign(drill, {
+    requisitions: {cols:'req', rows:REQ},
+    pending: {cols:'req', rows:pending},
+    vendors: {cols:'vendor', rows:vendors},
+    budget: {cols:'req', rows:REQ},
+    certified: {cols:'cert', rows:CERT},
+    paid: {cols:'req', rows:REQ.filter(r=>r.totalPaid>0.5)},
+    outstanding: {cols:'certOut', rows:certsOut},
+    available: {cols:'req', rows:REQ.filter(r=>r.available>0.5).sort((a,b)=>b.available-a.available)},
+    tax: {cols:'cert', rows:CERT},
+    tds: {cols:'cert', rows:CERT.filter(c=>c.tds).concat(advTdsRows)},
+    advance: {cols:'adv', rows:advRows},
+    advPending: {cols:'adv', rows:advPending},
+    certs: {cols:'cert', rows:CERT},
+  });
+  const tile = (lbl,key,val,sub) => `<div class="kpi" data-drill="${key}"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="sub">${sub}</div></div>`;
+  const per = periodActive() ? 'selected period' : 'all-time';
+  const both = REQ.some(r=>r.source===SRC_PROMO) && REQ.some(r=>r.source===SRC_EXP);
+  document.getElementById('kpiGrid').innerHTML =
+    `<div class="kpi-group-label">Budget &amp; requisitions &middot; ${per}</div>` +
+    tile('Requisitions','requisitions',fmtNum(REQ.length), both ? `<b>${fmtNum(nP)}</b> promotion &middot; <b>${fmtNum(nX)}</b> expense invoices` : `<b>${fmtNum(approved.length)}</b> approved &middot; ${fmtNum(pending.length)} awaiting approval`) +
+    tile(hasExp()?'Committed Spend':'Approved Budget','budget',fmtINRCr(budget.t), both ? split(budget,'promotion budget','expense invoices') : (budget.x ? 'Expense invoices (Gross Amount)' : 'Sum of Promotion Amount')) +
+    tile('Avg Requisition','requisitions',fmtINRCr(REQ.length?budget.t/REQ.length:0),'Committed spend per requisition') +
+    tile('Vendors / Agencies','vendors',fmtNum(vendors.length),top?`Largest: ${esc(top.agent)} (${fmtINRCr(top.budget)})`:'—') +
+    tile('Awaiting Approval','pending',fmtNum(pending.length),`${fmtINRCr(sum(pending,'budget'))} requested &middot; Submitted / ReSubmit`) +
+    `<div class="kpi-group-label">Billing &amp; payments</div>` +
+    tile('Certified (Invoiced)','certified',fmtINRCr(certified.t), both ? split(certified) : `${fmtPct(budget.t?certified.t/budget.t*100:0)} of approved budget`) +
+    tile('Total Paid','paid',fmtINRCr(paid.t), both ? split(paid) : `${fmtPct(certified.t?paid.t/certified.t*100:0)} of certified value`) +
+    tile('Amount Outstanding','outstanding',fmtINRCr(out.t), `${fmtNum(certsOut.length)} invoices pending` + (both ? ` &middot; ${split(out)}` : '')) +
+    tile('Budget Unutilised','available',fmtINRCr(avail), budget.p ? 'Approved promotion budget not yet invoiced' : 'Applies to promotion requisitions only') +
+    tile('Certificates / Invoices','certs',fmtNum(CERT.length),`<b>${fmtNum(CERT.length-certsUnpaid.length)}</b> paid &middot; ${fmtNum(certsUnpaid.length)} in process`) +
+    `<div class="kpi-group-label">Tax &amp; advances</div>` +
+    tile('Base Amount','tax',fmtINRCr(sum(CERT,'baseAmt')),'Certified value before GST') +
+    tile('GST','tax',fmtINRCr(sum(CERT,'gstAmt')),'GST on certified invoices') +
+    tile('TDS Deducted','tds',fmtINRCr(tdsTotal), advTdsRows.length ? `Incl. ${fmtINRCr(sum(advTdsRows,'tds'))} on expense advances` : 'Withheld from vendor payments') +
+    tile('Advances Given','advance',fmtINRCr(advGiven),`${fmtINRCr(advRec)} recovered against invoices` + (advUnpaid>0.5 ? ` &middot; ${fmtINRCr(advUnpaid)} more requested, unpaid` : '')) +
+    tile('Advance Pending Recovery','advPending',fmtINRCr(advGiven-advRec),`${fmtNum(advPending.filter(r=>r.advancePending>0.5).length)} requisitions / vendors with unadjusted advance`);
+}
+function withAge(c){
+  const d = parseDateAny(c.invoiceDate);
+  const t = new Date(); const today = new Date(t.getFullYear(),t.getMonth(),t.getDate());
+  return {...c, ageDays: d ? Math.round((today - new Date(d.getFullYear(),d.getMonth(),d.getDate()))/86400000) : null};
+}
+
+/* ============ CHARTS ============ */
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function destroy(k){ if(charts[k]){ charts[k].destroy(); delete charts[k]; } }
+function emptyMsg(id, msg){
+  const c = document.getElementById(id), w = c.closest('.wrap'); c.style.display='none';
+  let m = w.querySelector('.chart-empty-msg'); if(!m){ m=document.createElement('div'); m.className='chart-empty-msg'; w.appendChild(m); } m.textContent = msg;
+}
+function clearMsg(id){ const c=document.getElementById(id), w=c.closest('.wrap'); c.style.display=''; const m=w.querySelector('.chart-empty-msg'); if(m) m.remove(); }
+const lakhTip = {callbacks:{label: ctx => (ctx.dataset.label? ctx.dataset.label+': ':'') + '₹'+(+ctx.raw).toLocaleString('en-IN',{maximumFractionDigits:2})+' L'}};
+const lakhLbl = v => v>=100 ? '₹'+(v/100).toFixed(2)+' Cr' : '₹'+v.toFixed(1)+' L';
+function hbar(key, id, labels, data, color, emptyText, onClick){
+  destroy(key);
+  if(!labels.length){ emptyMsg(id, emptyText); return; }
+  clearMsg(id);
+  charts[key] = new Chart(document.getElementById(id), {
+    type:'bar',
+    data:{ labels, datasets:[{ data, backgroundColor: color, borderRadius:3 }] },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      layout:{padding:{right:70}},
+      scales:{ x:{ title:{display:true,text:'₹ Lakh'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false}, ticks:{font:{size:10.5}, callback(v){ const s=this.getLabelForValue(v); return s.length>34? s.slice(0,32)+'…' : s; }} } },
+      onClick: onClick ? (e,els)=>{ if(els.length) onClick(labels[els[0].index]); } : undefined,
+      onHover: onClick ? (e,els)=>{ e.native.target.style.cursor = els.length?'pointer':'default'; } : undefined,
+      plugins:{ legend:{display:false}, tooltip:lakhTip,
+        datalabels:{ color: css('--navy'), anchor:'end', align:'right', clamp:true, font:{weight:'600',size:10.5}, formatter: lakhLbl } } },
+    plugins:[ChartDataLabels]
+  });
+}
+function hbarStack(key, id, labels, datasets, emptyText, onClick){
+  destroy(key);
+  if(!labels.length){ emptyMsg(id, emptyText); return; }
+  clearMsg(id);
+  const totals = labels.map((_,i)=>datasets.reduce((a,d)=>a+(d.data[i]||0),0));
+  charts[key] = new Chart(document.getElementById(id), {
+    type:'bar', data:{ labels, datasets: datasets.map(d=>({...d, stack:'a', borderRadius:2})) },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, layout:{padding:{right:70}},
+      scales:{ x:{ stacked:true, title:{display:true,text:'₹ Lakh'}, grid:{color:'#EEF1F5'} }, y:{ stacked:true, grid:{display:false}, ticks:{font:{size:10.5}, callback(v){ const s=this.getLabelForValue(v); return s.length>34? s.slice(0,32)+'…' : s; }} } },
+      onClick: onClick ? (e,els)=>{ if(els.length) onClick(labels[els[0].index]); } : undefined,
+      onHover: onClick ? (e,els)=>{ e.native.target.style.cursor = els.length?'pointer':'default'; } : undefined,
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}, tooltip:lakhTip,
+        datalabels:{ display: ctx => ctx.datasetIndex===datasets.length-1, color: css('--navy'), anchor:'end', align:'right', clamp:true, font:{weight:'600',size:10.5}, formatter:(v,ctx)=>lakhLbl(totals[ctx.dataIndex]) } } },
+    plugins:[ChartDataLabels]
+  });
+}
+function vbar(key, id, labels, datasets, emptyText, stacked){
+  destroy(key);
+  if(!labels.length){ emptyMsg(id, emptyText); return; }
+  clearMsg(id);
+  charts[key] = new Chart(document.getElementById(id), {
+    type:'bar', data:{ labels, datasets },
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:24}},
+      scales:{ x:{ stacked:!!stacked, grid:{display:false}, ticks:{font:{size:10.5}} }, y:{ stacked:!!stacked, title:{display:true,text:'₹ Lakh'}, grid:{color:'#EEF1F5'} } },
+      plugins:{ legend:{display: datasets.length>1, position:'bottom', labels:{boxWidth:12,font:{size:11}}}, tooltip:lakhTip,
+        datalabels:{ display: !stacked, color: css('--navy'), anchor:'end', align:'top', font:{weight:'600',size:10.5}, formatter: lakhLbl } } },
+    plugins:[ChartDataLabels]
+  });
+}
+function donut(key, id, labels, data, colors, emptyText){
+  destroy(key);
+  if(!labels.length || !data.some(v=>v>0)){ emptyMsg(id, emptyText); return; }
+  clearMsg(id);
+  const total = data.reduce((a,b)=>a+b,0);
+  charts[key] = new Chart(document.getElementById(id), {
+    type:'doughnut', data:{ labels, datasets:[{ data, backgroundColor: colors, borderWidth:2, borderColor:'#fff' }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'58%',
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}, tooltip:lakhTip,
+        datalabels:{ color:'#fff', font:{weight:'700',size:11.5}, formatter: v => (v/total>0.05) ? Math.round(v/total*100)+'%' : '' } } },
+    plugins:[ChartDataLabels]
+  });
+}
+const CHANNEL_ORDER = ['Agencies & Retainers','Digital','BTL','ATL & Brand','Channel Partner & Referrals','Other'];
+function channelColors(){ return { 'Agencies & Retainers':css('--navy'), 'Digital':css('--gold'), 'BTL':'#5C63B8', 'ATL & Brand':css('--brick'), 'Channel Partner & Referrals':css('--gold-light'), 'Other':'#A9AECF' }; }
+function openFilteredDrill(title, rows){ openDrill(title, `${fmtNum(rows.length)} requisitions &middot; ${fmtINRCr(sum(rows,'budget'))} committed`, 'req', rows); }
+function renderCharts(){
+  const navy=css('--navy'), gold=css('--gold'), brick=css('--brick'), teal=css('--teal'), muted='#A9AECF';
+  // FY stacked (trend: ignores FY/Month)
+  const fyG = {};
+  REQ_DIMS.forEach(r=>{ const f=fyOf(r.requestDate); if(!f) return; const g=fyG[f.label]=fyG[f.label]||{s:f.sortKey,paid:0,out:0,avail:0}; g.paid+=r.totalPaid; g.out+=r.outstanding; g.avail+=r.available; });
+  const fyL = Object.keys(fyG).sort((a,b)=>fyG[a].s-fyG[b].s);
+  vbar('fy','chFY', fyL, [
+    {label:'Paid', data:fyL.map(k=>L(fyG[k].paid)), backgroundColor:navy, stack:'a'},
+    {label:'Outstanding', data:fyL.map(k=>L(fyG[k].out)), backgroundColor:gold, stack:'a'},
+    {label:'Unutilised', data:fyL.map(k=>L(Math.max(0,fyG[k].avail))), backgroundColor:muted, stack:'a'},
+  ], 'No requisitions for the current filter.', true);
+  // Promotion type donut
+  const pt = groupBy(REQ, r=>r.promoType, ['budget']).sort((a,b)=>b.budget-a.budget);
+  donut('promoType','chPromoType', pt.map(p=>p.key), pt.map(p=>L(p.budget)), [navy,gold,brick,muted], 'No requisitions for the current filter.');
+  // Monthly
+  const mG = {};
+  REQ.forEach(r=>{ const m=monthOf(r.requestDate); if(!m) return; (mG[m.key]=mG[m.key]||{label:m.label,v:0}).v+=r.budget; });
+  const mK = Object.keys(mG).sort();
+  destroy('monthly');
+  if(!mK.length) emptyMsg('chMonthly','No requisitions for the current filter.');
+  else { clearMsg('chMonthly');
+    charts.monthly = new Chart(document.getElementById('chMonthly'), { type:'bar',
+      data:{ labels:mK.map(k=>mG[k].label), datasets:[{ label:'Approved budget', data:mK.map(k=>L(mG[k].v)), backgroundColor:gold, borderRadius:3 }] },
+      options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{grid:{display:false}, ticks:{maxRotation:60,minRotation:45,font:{size:10}}}, y:{title:{display:true,text:'₹ Lakh'}, grid:{color:'#EEF1F5'}} },
+        plugins:{ legend:{display:false}, tooltip:lakhTip, datalabels:{display:false} } } });
+  }
+  // Channel
+  const cc = channelColors();
+  const ch = groupBy(REQ, r=>r.channel, ['budget']).sort((a,b)=>CHANNEL_ORDER.indexOf(a.key)-CHANNEL_ORDER.indexOf(b.key));
+  hbar('channel','chChannel', ch.map(c=>c.key), ch.map(c=>L(c.budget)), ch.map(c=>cc[c.key]||muted), 'No requisitions for the current filter.',
+    k=>openFilteredDrill('Channel: '+k, REQ.filter(r=>r.channel===k)));
+  // Channel x FY (trend)
+  const cfy = {}; const chSet = new Set();
+  REQ_DIMS.forEach(r=>{ const f=fyOf(r.requestDate); if(!f) return; chSet.add(r.channel); const g=cfy[f.label]=cfy[f.label]||{s:f.sortKey}; g[r.channel]=(g[r.channel]||0)+r.budget; });
+  const cfyL = Object.keys(cfy).sort((a,b)=>cfy[a].s-cfy[b].s);
+  vbar('channelFY','chChannelFY', cfyL, CHANNEL_ORDER.filter(c=>chSet.has(c)).map(c=>({label:c, data:cfyL.map(k=>L(cfy[k][c]||0)), backgroundColor:cc[c], stack:'a'})), 'No requisitions for the current filter.', true);
+  // Activity
+  const act = groupBy(REQ, r=>r.activityType, ['budget']).sort((a,b)=>b.budget-a.budget).slice(0,15);
+  hbar('activity','chActivity', act.map(a=>a.key), act.map(a=>L(a.budget)), act.map(a=>cc[channelOf(a.key)]||muted), 'No requisitions for the current filter.',
+    k=>openFilteredDrill('Activity: '+k, REQ.filter(r=>r.activityType===k)));
+  // Vendors
+  const vs = vendorSummary(REQ, CERT);
+  const vTop = vs.slice(0,15);
+  hbarStack('vendor','chVendor', vTop.map(v=>v.agent), [
+    {label:'Promotion budget', data:vTop.map(v=>L(v.promoBudget)), backgroundColor:navy},
+    {label:'Expense invoiced', data:vTop.map(v=>L(v.expenseInvoiced)), backgroundColor:gold},
+  ], 'No requisitions for the current filter.', k=>openFilteredDrill('Vendor: '+k, REQ.filter(r=>r.agent===k)));
+  const vOut = vs.filter(v=>v.outstanding>0.5).sort((a,b)=>b.outstanding-a.outstanding).slice(0,15);
+  hbar('vendorOut','chVendorOut', vOut.map(v=>v.agent), vOut.map(v=>L(v.outstanding)), brick, 'Nothing outstanding for the current filter.',
+    k=>{ const rows = CERT.filter(c=>c.agent===k && c.outstanding>0.5).map(withAge); openDrill('Outstanding: '+k, `${fmtNum(rows.length)} invoices &middot; ${fmtINRCr(sum(rows,'outstanding'))} outstanding`, 'certOut', rows); });
+  // Cert status
+  const STATUS_ORDER = ['Paid','Partially Paid','Processed','Approved','Checked','Submitted'];
+  const cs = groupBy(CERT, c=>c.certStatus, ['totalCertified','outstanding']).sort((a,b)=>{ const ia=STATUS_ORDER.indexOf(a.key), ib=STATUS_ORDER.indexOf(b.key); return (ia<0?99:ia)-(ib<0?99:ib); });
+  destroy('certStatus');
+  if(!cs.length) emptyMsg('chCertStatus','No certificates for the current filter.');
+  else { clearMsg('chCertStatus');
+    charts.certStatus = new Chart(document.getElementById('chCertStatus'), { type:'bar',
+      data:{ labels: cs.map(c=>`${c.key} (${c.count})`), datasets:[{ data: cs.map(c=>L(c.totalCertified)), backgroundColor: cs.map(c=>c.key==='Paid'?navy:gold), borderRadius:3 }] },
+      options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:24}}, scales:{ x:{grid:{display:false}}, y:{title:{display:true,text:'₹ Lakh'}, grid:{color:'#EEF1F5'}} },
+        onClick:(e,els)=>{ if(!els.length) return; const s=cs[els[0].index].key; const rows=CERT.filter(c=>c.certStatus===s); openDrill('Certificates: '+s, `${fmtNum(rows.length)} certificates &middot; ${fmtINRCr(sum(rows,'totalCertified'))} certified`, 'cert', rows); },
+        plugins:{ legend:{display:false}, tooltip:lakhTip, datalabels:{ color:navy, anchor:'end', align:'top', font:{weight:'600',size:10.5}, formatter:lakhLbl } } },
+      plugins:[ChartDataLabels] });
+  }
+  // Paid by FY (processed date; trend)
+  const pfy = {};
+  CERT_DIMS.forEach(c=>{ const f=fyOf(c.processedDate); if(!f || !c.totalPaid) return; (pfy[f.label]=pfy[f.label]||{s:f.sortKey,v:0}).v+=c.totalPaid; });
+  const pfyL = Object.keys(pfy).sort((a,b)=>pfy[a].s-pfy[b].s);
+  const sfy = {};
+  CERT_DIMS.forEach(c=>{ const f=fyOf(c.invoiceDate); if(!f) return; const g=sfy[f.label]=sfy[f.label]||{s:f.sortKey,p:0,x:0}; if(c.source===SRC_PROMO) g.p+=c.totalCertified; else g.x+=c.totalCertified; });
+  const sfyL = Object.keys(sfy).sort((a,b)=>sfy[a].s-sfy[b].s);
+  vbar('srcFY','chSourceFY', sfyL, [
+    {label:'Promotion certificates', data:sfyL.map(k=>L(sfy[k].p)), backgroundColor:navy, stack:'a'},
+    {label:'Expense invoices', data:sfyL.map(k=>L(sfy[k].x)), backgroundColor:gold, stack:'a'},
+  ], 'No certificates for the current filter.', true);
+  vbar('paidFY','chPaidFY', pfyL, [{label:'Paid', data:pfyL.map(k=>L(pfy[k].v)), backgroundColor:navy, borderRadius:4}], 'No processed payments for the current filter.');
+  // Ageing
+  const BUCKETS = [['0–30 days',0,30],['31–60 days',31,60],['61–90 days',61,90],['91–180 days',91,180],['180+ days',181,1e9],['No invoice date',null,null]];
+  const outRows = CERT.filter(c=>c.outstanding>0.5).map(withAge);
+  const bucketOf = c => c.ageDays===null ? 'No invoice date' : BUCKETS.find(b=>b[1]!==null && c.ageDays>=b[1] && c.ageDays<=b[2])[0];
+  const ag = {}; outRows.forEach(c=>{ const b=bucketOf(c); ag[b]=(ag[b]||0)+c.outstanding; });
+  const agL = BUCKETS.map(b=>b[0]).filter(b=>ag[b]);
+  destroy('ageing');
+  if(!agL.length) emptyMsg('chAgeing','Nothing outstanding for the current filter.');
+  else { clearMsg('chAgeing');
+    charts.ageing = new Chart(document.getElementById('chAgeing'), { type:'bar',
+      data:{ labels:agL, datasets:[{ data:agL.map(b=>L(ag[b])), backgroundColor:agL.map((b,i)=> i>=3?brick:gold), borderRadius:3 }] },
+      options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:24}}, scales:{ x:{grid:{display:false}}, y:{title:{display:true,text:'₹ Lakh'}, grid:{color:'#EEF1F5'}} },
+        onClick:(e,els)=>{ if(!els.length) return; const b=agL[els[0].index]; const rows=outRows.filter(c=>bucketOf(c)===b).sort((x,y)=>(y.ageDays??-1)-(x.ageDays??-1)); openDrill('Outstanding — '+b, `${fmtNum(rows.length)} invoices &middot; ${fmtINRCr(sum(rows,'outstanding'))}`, 'certOut', rows); },
+        plugins:{ legend:{display:false}, tooltip:lakhTip, datalabels:{ color:navy, anchor:'end', align:'top', font:{weight:'600',size:11}, formatter:lakhLbl } } },
+      plugins:[ChartDataLabels] });
+  }
+  // Projects
+  const pr = groupBy(REQ.filter(r=>r.project!==BRAND_BUCKET), r=>r.project, ['budget']).sort((a,b)=>b.budget-a.budget);
+  hbar('project','chProject', pr.slice(0,15).map(p=>p.key), pr.slice(0,15).map(p=>L(p.budget)), gold, 'No project-tagged requisitions for the current filter.',
+    k=>openFilteredDrill('Project: '+k, REQ.filter(r=>r.project===k)));
+  const brand = REQ.filter(r=>r.project===BRAND_BUCKET), budgetAll = sum(REQ,'budget');
+  document.getElementById('projectNote').textContent = brand.length
+    ? `${fmtNum(brand.length)} requisitions (${fmtINRCr(sum(brand,'budget'))}, ${fmtPct(budgetAll?sum(brand,'budget')/budgetAll*100:0)} of budget) have no Project in the ERP and are treated as brand / corporate spend — not shown here.` : '';
+  const co = groupBy(REQ, r=>r.company, ['totalPaid','outstanding','available']).sort((a,b)=>(b.totalPaid+b.outstanding)-(a.totalPaid+a.outstanding));
+  vbar('company','chCompany', co.map(c=>c.key), [
+    {label:'Paid', data:co.map(c=>L(c.totalPaid)), backgroundColor:navy, stack:'a'},
+    {label:'Outstanding', data:co.map(c=>L(c.outstanding)), backgroundColor:gold, stack:'a'},
+    {label:'Unutilised', data:co.map(c=>L(Math.max(0,c.available))), backgroundColor:muted, stack:'a'},
+  ], 'No requisitions for the current filter.', true);
+}
+
+/* ============ DRILL-DOWN MODAL ============ */
+const C = (key,label,o={}) => ({key,label,...o});
+const money = o => ({fmt:fmtINRCr, money:true, ...o});
+const dateCol = (key,label) => C(key,label,{align:'left', fmt:fmtDate, date:true});
+const DRILL_COLS = {
+  req: [ C('source','Report',{align:'left'}), C('refId','Ref Id',{align:'left'}), dateCol('requestDate','Request / Invoice Date'), C('agent','Vendor / Agent',{align:'left'}),
+    C('activityType','Activity / Expense Type',{align:'left'}), C('channel','Channel',{align:'left'}), C('description','Description / Remarks',{align:'left'}),
+    C('project','Project',{align:'left'}), C('company','Company',{align:'left'}), C('promoType','Promotion Type',{align:'left'}), C('status','Status',{align:'left'}),
+    C('budget','Committed',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()), C('available','Unutilised',money()) ],
+  cert: [ C('source','Report',{align:'left'}), C('certRef','Cert / Expense Id',{align:'left'}), C('refId','Ref Id',{align:'left'}), C('invoiceNo','Invoice No',{align:'left'}),
+    dateCol('invoiceDate','Invoice Date'), dateCol('processedDate','Processed Date'),
+    C('agent','Vendor / Agent',{align:'left'}), C('activityType','Activity / Expense Type',{align:'left'}), C('description','Description / Remarks',{align:'left'}), C('project','Project',{align:'left'}),
+    C('certStatus','Status',{align:'left'}), C('baseAmt','Base Amt',money()), C('gstAmt','GST',money()), C('tds','TDS',money()),
+    C('totalCertified','Total Certified',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()) ],
+  certOut: [ C('source','Report',{align:'left'}), C('certRef','Cert / Expense Id',{align:'left'}), C('refId','Ref Id',{align:'left'}), C('invoiceNo','Invoice No',{align:'left'}),
+    dateCol('invoiceDate','Invoice Date'), C('ageDays','Age (Days)',{fmt:v=>v===null||v===undefined?'—':fmtNum(v)}), C('agent','Vendor / Agent',{align:'left'}),
+    C('activityType','Activity / Expense Type',{align:'left'}), C('description','Description / Remarks',{align:'left'}), C('project','Project',{align:'left'}), C('certStatus','Status',{align:'left'}),
+    C('totalCertified','Total Certified',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()) ],
+  vendor: [ C('agent','Vendor / Agent',{align:'left'}), C('sources','Reports',{align:'left'}), C('channels','Channels',{align:'left'}), C('requisitions','Requisitions',{fmt:fmtNum, money:true}),
+    C('promoBudget','Promotion Budget',money()), C('expenseInvoiced','Expense Invoiced',money()), C('budget','Committed',money()),
+    C('certified','Certified',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()), C('available','Unutilised',money()) ],
+  adv: [ C('source','Report',{align:'left'}), C('refId','Ref Id',{align:'left'}), dateCol('requestDate','Request Date'), C('agent','Vendor / Agent',{align:'left'}),
+    C('activityType','Activity / Expense Type',{align:'left'}), C('description','Description',{align:'left'}),
+    C('advance','Advance Given',money()), C('advanceRecovered','Advance Recovered',money()), C('advancePending','Advance Pending',money()), C('advanceUnpaid','Requested, Unpaid',money()) ],
+};
+let drillCur = null;
+function openDrill(title, sub, colsKey, rows){
+  drillCur = { title, sub, cols: DRILL_COLS[colsKey], rows, sort:null };
+  document.getElementById('drillTitle').textContent = title;
+  document.getElementById('drillSub').innerHTML = sub;
+  document.getElementById('drillSearch').value = '';
+  drawDrill();
+  document.getElementById('drillOverlay').style.display = 'flex';
+}
+function drillRows(){
+  const q = document.getElementById('drillSearch').value.trim().toLowerCase();
+  let rows = drillCur.rows;
+  if(q) rows = rows.filter(r => drillCur.cols.some(c => (''+(r[c.key]??'')).toLowerCase().includes(q)));
+  if(drillCur.sort){ const {key,dir} = drillCur.sort; rows = [...rows].sort((a,b)=>{ const x=a[key], y=b[key]; if(typeof x==='number'||typeof y==='number') return dir*((x??-Infinity)-(y??-Infinity)); return dir*(''+(x??'')).localeCompare(''+(y??'')); }); }
+  return rows;
+}
+function drawDrill(){
+  const {cols} = drillCur, rows = drillRows();
+  document.getElementById('drillThead').innerHTML = cols.map(c=>`<th data-k="${c.key}" style="text-align:${c.align||'right'}">${c.label}${drillCur.sort&&drillCur.sort.key===c.key?(drillCur.sort.dir>0?' ▲':' ▼'):''}</th>`).join('');
+  const shown = rows.slice(0, 2000);
+  document.getElementById('drillTbody').innerHTML = shown.length
+    ? shown.map(r=>'<tr>'+cols.map(c=>{ const v=r[c.key]; const d = c.fmt ? c.fmt(v) : (v===''||v===null||v===undefined?'—':esc(v)); return `<td style="text-align:${c.align||'right'}" title="${escAttr(c.fmt?d:(v??''))}">${d}</td>`; }).join('')+'</tr>').join('')
+    : `<tr><td colspan="${cols.length}" class="modal-empty">No records for the current filter.</td></tr>`;
+  document.getElementById('drillTfoot').innerHTML = rows.length ? cols.map((c,i)=> i===0 ? `<td>Total</td>` : `<td style="text-align:${c.align||'right'}">${c.money ? (c.fmt||fmtNum)(sum(rows,c.key)) : ''}</td>`).join('') : '';
+  document.getElementById('drillCount').textContent = rows.length ? `${rows.length.toLocaleString('en-IN')} record${rows.length===1?'':'s'}${rows.length>shown.length?' (first 2,000 shown — download for all)':''}` : '';
+  document.getElementById('drillDownload').disabled = !rows.length;
+  document.querySelectorAll('#drillThead th').forEach(th=>th.addEventListener('click', ()=>{
+    const k = th.dataset.k; drillCur.sort = (drillCur.sort && drillCur.sort.key===k) ? {key:k, dir:-drillCur.sort.dir} : {key:k, dir:-1}; drawDrill();
+  }));
+}
+document.getElementById('drillSearch').addEventListener('input', ()=>drillCur && drawDrill());
+function closeDrill(){ document.getElementById('drillOverlay').style.display='none'; drillCur=null; }
+document.getElementById('drillClose').addEventListener('click', closeDrill);
+document.getElementById('drillOverlay').addEventListener('click', e=>{ if(e.target.id==='drillOverlay') closeDrill(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeDrill(); });
+document.getElementById('kpiGrid').addEventListener('click', e=>{
+  const t = e.target.closest('.kpi'); if(!t || !drill[t.dataset.drill]) return;
+  const d = drill[t.dataset.drill];
+  openDrill(t.querySelector('.lbl').textContent, t.querySelector('.sub').innerHTML, d.cols, d.rows);
+});
+function toSheetRows(cols, rows){
+  return rows.map(r=>{ const o={}; cols.forEach(c=>{ let v=r[c.key]; if(c.date) v = v ? parseDateAny(v) : ''; o[c.label] = (v===null||v===undefined)?'':v; }); return o; });
+}
+function sheetFrom(cols, rows){ return XLSX.utils.json_to_sheet(toSheetRows(cols, rows), {cellDates:true, dateNF:'dd-mmm-yyyy'}); }
+document.getElementById('drillDownload').addEventListener('click', ()=>{
+  if(!drillCur) return;
+  const rows = drillRows(); if(!rows.length) return;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheetFrom(drillCur.cols, rows), drillCur.title.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31)||'Data');
+  XLSX.writeFile(wb, 'MP_Marketing_'+(drillCur.title.replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_')||'Data')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+});
+
+/* ============ EXPORT ALL ============ */
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheetFrom(DRILL_COLS.req, REQ), 'Requisitions');
+  if(CERT.length) XLSX.utils.book_append_sheet(wb, sheetFrom(DRILL_COLS.cert, CERT), 'Certificates');
+  XLSX.utils.book_append_sheet(wb, sheetFrom(DRILL_COLS.vendor, vendorSummary(REQ, CERT)), 'Vendor Summary');
+  const summ = (fn, label) => groupBy(REQ, fn, ['budget','totalPaid','outstanding','available']).sort((a,b)=>b.budget-a.budget)
+    .map(g=>({[label]:g.key, 'Requisitions':g.count, 'Committed':g.budget, 'Total Paid':g.totalPaid, 'Outstanding':g.outstanding, 'Unutilised':g.available}));
+  const adv = advanceRows(); if(adv.length) XLSX.utils.book_append_sheet(wb, sheetFrom(DRILL_COLS.adv, adv), 'Advances');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summ(r=>r.source,'Report')), 'Report Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summ(r=>r.channel,'Channel')), 'Channel Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summ(r=>r.activityType,'Activity Type')), 'Activity Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summ(r=>r.project,'Project')), 'Project Summary');
+  XLSX.writeFile(wb, 'MP_Marketing_All_Data_'+new Date().toISOString().slice(0,10)+'.xlsx');
+});
+
+/* ============ SECTION NAV ============ */
+document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ const p=document.getElementById('page-'+b.dataset.page); if(p) p.scrollIntoView({behavior:'smooth',block:'start'}); }));
+(function(){
+  if(!('IntersectionObserver' in window)) return;
+  const obs = new IntersectionObserver(es=>es.forEach(en=>{ if(!en.isIntersecting) return; const n=en.target.id.replace('page-',''); document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.page===n)); }), {rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('.page').forEach(p=>obs.observe(p));
+})();
+</script>
+</body>
+</html>
