@@ -247,7 +247,7 @@
       <div class="section-title group first"><h2>Overview</h2><div class="line"></div></div>
       <div class="section-title"><h2>Budget Utilisation</h2><div class="line"></div></div>
       <div class="chart-grid">
-        <div class="chart-card"><h3>Committed spend by financial year — paid / outstanding / unutilised (₹ L)</h3><div class="wrap tall"><canvas id="chFY"></canvas></div></div>
+        <div class="chart-card"><h3>Committed spend by financial year — spent / outstanding / available (₹ L)</h3><div class="wrap tall"><canvas id="chFY"></canvas></div></div>
         <div class="chart-card"><h3>Brand vs project-related spend (committed)</h3><div class="wrap tall"><canvas id="chPromoType"></canvas></div></div>
       </div>
       <div class="chart-grid one">
@@ -280,7 +280,7 @@
       <div class="section-title group"><h2>Payments</h2><div class="line"></div></div>
       <div class="chart-grid even">
         <div class="chart-card"><h3>Certified value by certificate status (₹ L)</h3><div class="wrap tall"><canvas id="chCertStatus"></canvas></div></div>
-        <div class="chart-card"><h3>Payments processed by financial year (₹ L, by processed date)</h3><div class="wrap tall"><canvas id="chPaidFY"></canvas></div></div>
+        <div class="chart-card"><h3>Total spent by financial year (₹ L, by processed date)</h3><div class="wrap tall"><canvas id="chPaidFY"></canvas></div></div>
       </div>
       <div class="chart-grid even">
         <div class="chart-card"><h3>Certified value by report &amp; financial year (₹ L, by invoice date)</h3><div class="wrap"><canvas id="chSourceFY"></canvas></div></div>
@@ -293,7 +293,7 @@
       <div class="chart-grid even">
         <div class="chart-card"><h3>Project-tagged spend by project (top 15, ₹ L)</h3><div class="wrap xtall"><canvas id="chProject"></canvas></div>
         <p class="chart-note" id="projectNote"></p></div>
-        <div class="chart-card"><h3>Spend by company — paid vs outstanding (₹ L)</h3><div class="wrap xtall"><canvas id="chCompany"></canvas></div></div>
+        <div class="chart-card"><h3>Spend by company — spent vs outstanding (₹ L)</h3><div class="wrap xtall"><canvas id="chCompany"></canvas></div></div>
       </div>
     </div>
 
@@ -998,9 +998,9 @@ function renderHero(){
   const card = (cls,lbl,v,sub) => `<div class="hero-half ${cls}"><div class="lbl">${lbl}</div><div class="big num">${fmtINRCr(v)}</div><div class="sub2">${sub}</div><div class="hero-bar"><div class="fill" style="width:${Math.max(0,Math.min(100,pct(v)))}%"></div></div></div>`;
   const base = hasExp() ? 'committed spend' : 'approved budget';
   document.getElementById('heroSplit').innerHTML =
-    card('paid','Total Paid',paid,`${fmtPct(pct(paid))} of ${fmtINRCr(budget)} ${base}`) +
-    card('out','Amount Outstanding',out,`${fmtPct(pct(out))} of ${base} &middot; certified, not yet paid`) +
-    card('avail','Budget Unutilised',avail,`${fmtPct(pct(avail))} of ${base} &middot; approved, not yet invoiced`);
+    card('paid','Total Spent',paid,`${fmtPct(pct(paid))} of ${fmtINRCr(budget)} ${base}`) +
+    card('out','Total Outstanding',out,`${fmtPct(pct(out))} of ${base} &middot; certified, not yet paid`) +
+    card('avail','Total Amount Available',avail,`${fmtPct(pct(avail))} of ${base} &middot; approved, not yet invoiced`);
 }
 function renderKPIs(){
   const budget = bySource(REQ,'budget'), certified = bySource(CERT,'totalCertified'), paid = bySource(REQ,'totalPaid');
@@ -1045,9 +1045,9 @@ function renderKPIs(){
     tile('Awaiting Approval','pending',fmtNum(pending.length),`${fmtINRCr(sum(pending,'budget'))} requested &middot; Submitted / ReSubmit`) +
     `<div class="kpi-group-label">Billing &amp; payments</div>` +
     tile('Certified (Invoiced)','certified',fmtINRCr(certified.t), both ? split(certified) : `${fmtPct(budget.t?certified.t/budget.t*100:0)} of approved budget`) +
-    tile('Total Paid','paid',fmtINRCr(paid.t), both ? split(paid) : `${fmtPct(certified.t?paid.t/certified.t*100:0)} of certified value`) +
-    tile('Amount Outstanding','outstanding',fmtINRCr(out.t), `${fmtNum(certsOut.length)} invoices pending` + (both ? ` &middot; ${split(out)}` : '')) +
-    tile('Budget Unutilised','available',fmtINRCr(avail), budget.p ? 'Approved promotion budget not yet invoiced' : 'Applies to promotion requisitions only') +
+    tile('Total Spent','paid',fmtINRCr(paid.t), both ? split(paid) : `${fmtPct(certified.t?paid.t/certified.t*100:0)} of certified value`) +
+    tile('Total Outstanding','outstanding',fmtINRCr(out.t), `${fmtNum(certsOut.length)} invoices pending` + (both ? ` &middot; ${split(out)}` : '')) +
+    tile('Total Amount Available','available',fmtINRCr(avail), budget.p ? 'Approved promotion budget not yet invoiced' : 'Applies to promotion requisitions only') +
     tile('Certificates / Invoices','certs',fmtNum(CERT.length),`<b>${fmtNum(CERT.length-certsUnpaid.length)}</b> paid &middot; ${fmtNum(certsUnpaid.length)} in process`) +
     `<div class="kpi-group-label">Tax &amp; advances</div>` +
     tile('Base Amount','tax',fmtINRCr(sum(CERT,'baseAmt')),'Certified value before GST') +
@@ -1141,9 +1141,9 @@ function renderCharts(){
   REQ_DIMS.forEach(r=>{ const f=fyOf(r.requestDate); if(!f) return; const g=fyG[f.label]=fyG[f.label]||{s:f.sortKey,paid:0,out:0,avail:0}; g.paid+=r.totalPaid; g.out+=r.outstanding; g.avail+=r.available; });
   const fyL = Object.keys(fyG).sort((a,b)=>fyG[a].s-fyG[b].s);
   vbar('fy','chFY', fyL, [
-    {label:'Paid', data:fyL.map(k=>L(fyG[k].paid)), backgroundColor:navy, stack:'a'},
+    {label:'Spent', data:fyL.map(k=>L(fyG[k].paid)), backgroundColor:navy, stack:'a'},
     {label:'Outstanding', data:fyL.map(k=>L(fyG[k].out)), backgroundColor:gold, stack:'a'},
-    {label:'Unutilised', data:fyL.map(k=>L(Math.max(0,fyG[k].avail))), backgroundColor:muted, stack:'a'},
+    {label:'Available', data:fyL.map(k=>L(Math.max(0,fyG[k].avail))), backgroundColor:muted, stack:'a'},
   ], 'No requisitions for the current filter.', true);
   // Promotion type donut
   const pt = groupBy(REQ, r=>r.promoType, ['budget']).sort((a,b)=>b.budget-a.budget);
@@ -1208,7 +1208,7 @@ function renderCharts(){
     {label:'Promotion certificates', data:sfyL.map(k=>L(sfy[k].p)), backgroundColor:navy, stack:'a'},
     {label:'Expense invoices', data:sfyL.map(k=>L(sfy[k].x)), backgroundColor:gold, stack:'a'},
   ], 'No certificates for the current filter.', true);
-  vbar('paidFY','chPaidFY', pfyL, [{label:'Paid', data:pfyL.map(k=>L(pfy[k].v)), backgroundColor:navy, borderRadius:4}], 'No processed payments for the current filter.');
+  vbar('paidFY','chPaidFY', pfyL, [{label:'Spent', data:pfyL.map(k=>L(pfy[k].v)), backgroundColor:navy, borderRadius:4}], 'No processed payments for the current filter.');
   // Ageing
   const BUCKETS = [['0–30 days',0,30],['31–60 days',31,60],['61–90 days',61,90],['91–180 days',91,180],['180+ days',181,1e9],['No invoice date',null,null]];
   const outRows = CERT.filter(c=>c.outstanding>0.5).map(withAge);
@@ -1234,9 +1234,9 @@ function renderCharts(){
     ? `${fmtNum(brand.length)} requisitions (${fmtINRCr(sum(brand,'budget'))}, ${fmtPct(budgetAll?sum(brand,'budget')/budgetAll*100:0)} of budget) have no Project in the ERP and are treated as brand / corporate spend — not shown here.` : '';
   const co = groupBy(REQ, r=>r.company, ['totalPaid','outstanding','available']).sort((a,b)=>(b.totalPaid+b.outstanding)-(a.totalPaid+a.outstanding));
   vbar('company','chCompany', co.map(c=>c.key), [
-    {label:'Paid', data:co.map(c=>L(c.totalPaid)), backgroundColor:navy, stack:'a'},
+    {label:'Spent', data:co.map(c=>L(c.totalPaid)), backgroundColor:navy, stack:'a'},
     {label:'Outstanding', data:co.map(c=>L(c.outstanding)), backgroundColor:gold, stack:'a'},
-    {label:'Unutilised', data:co.map(c=>L(Math.max(0,c.available))), backgroundColor:muted, stack:'a'},
+    {label:'Available', data:co.map(c=>L(Math.max(0,c.available))), backgroundColor:muted, stack:'a'},
   ], 'No requisitions for the current filter.', true);
 }
 
@@ -1248,19 +1248,19 @@ const DRILL_COLS = {
   req: [ C('source','Report',{align:'left'}), C('refId','Ref Id',{align:'left'}), dateCol('requestDate','Request / Invoice Date'), C('agent','Vendor / Agent',{align:'left'}),
     C('activityType','Activity / Expense Type',{align:'left'}), C('channel','Channel',{align:'left'}), C('description','Description / Remarks',{align:'left'}),
     C('project','Project',{align:'left'}), C('company','Company',{align:'left'}), C('promoType','Promotion Type',{align:'left'}), C('status','Status',{align:'left'}),
-    C('budget','Committed',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()), C('available','Unutilised',money()) ],
+    C('budget','Committed',money()), C('totalPaid','Total Spent',money()), C('outstanding','Total Outstanding',money()), C('available','Total Amount Available',money()) ],
   cert: [ C('source','Report',{align:'left'}), C('certRef','Cert / Expense Id',{align:'left'}), C('refId','Ref Id',{align:'left'}), C('invoiceNo','Invoice No',{align:'left'}),
     dateCol('invoiceDate','Invoice Date'), dateCol('processedDate','Processed Date'),
     C('agent','Vendor / Agent',{align:'left'}), C('activityType','Activity / Expense Type',{align:'left'}), C('description','Description / Remarks',{align:'left'}), C('project','Project',{align:'left'}),
     C('certStatus','Status',{align:'left'}), C('baseAmt','Base Amt',money()), C('gstAmt','GST',money()), C('tds','TDS',money()),
-    C('totalCertified','Total Certified',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()) ],
+    C('totalCertified','Total Certified',money()), C('totalPaid','Total Spent',money()), C('outstanding','Total Outstanding',money()) ],
   certOut: [ C('source','Report',{align:'left'}), C('certRef','Cert / Expense Id',{align:'left'}), C('refId','Ref Id',{align:'left'}), C('invoiceNo','Invoice No',{align:'left'}),
     dateCol('invoiceDate','Invoice Date'), C('ageDays','Age (Days)',{fmt:v=>v===null||v===undefined?'—':fmtNum(v)}), C('agent','Vendor / Agent',{align:'left'}),
     C('activityType','Activity / Expense Type',{align:'left'}), C('description','Description / Remarks',{align:'left'}), C('project','Project',{align:'left'}), C('certStatus','Status',{align:'left'}),
-    C('totalCertified','Total Certified',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()) ],
+    C('totalCertified','Total Certified',money()), C('totalPaid','Total Spent',money()), C('outstanding','Total Outstanding',money()) ],
   vendor: [ C('agent','Vendor / Agent',{align:'left'}), C('sources','Reports',{align:'left'}), C('channels','Channels',{align:'left'}), C('requisitions','Requisitions',{fmt:fmtNum, money:true}),
     C('promoBudget','Promotion Budget',money()), C('expenseInvoiced','Expense Invoiced',money()), C('budget','Committed',money()),
-    C('certified','Certified',money()), C('totalPaid','Total Paid',money()), C('outstanding','Outstanding',money()), C('available','Unutilised',money()) ],
+    C('certified','Certified',money()), C('totalPaid','Total Spent',money()), C('outstanding','Total Outstanding',money()), C('available','Total Amount Available',money()) ],
   adv: [ C('source','Report',{align:'left'}), C('refId','Ref Id',{align:'left'}), dateCol('requestDate','Request Date'), C('agent','Vendor / Agent',{align:'left'}),
     C('activityType','Activity / Expense Type',{align:'left'}), C('description','Description',{align:'left'}),
     C('advance','Advance Given',money()), C('advanceRecovered','Advance Recovered',money()), C('advancePending','Advance Pending',money()), C('advanceUnpaid','Requested, Unpaid',money()) ],
@@ -1324,7 +1324,7 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   if(CERT.length) XLSX.utils.book_append_sheet(wb, sheetFrom(DRILL_COLS.cert, CERT), 'Certificates');
   XLSX.utils.book_append_sheet(wb, sheetFrom(DRILL_COLS.vendor, vendorSummary(REQ, CERT)), 'Vendor Summary');
   const summ = (fn, label) => groupBy(REQ, fn, ['budget','totalPaid','outstanding','available']).sort((a,b)=>b.budget-a.budget)
-    .map(g=>({[label]:g.key, 'Requisitions':g.count, 'Committed':g.budget, 'Total Paid':g.totalPaid, 'Outstanding':g.outstanding, 'Unutilised':g.available}));
+    .map(g=>({[label]:g.key, 'Requisitions':g.count, 'Committed':g.budget, 'Total Spent':g.totalPaid, 'Total Outstanding':g.outstanding, 'Total Amount Available':g.available}));
   const adv = advanceRows(); if(adv.length) XLSX.utils.book_append_sheet(wb, sheetFrom(DRILL_COLS.adv, adv), 'Advances');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summ(r=>r.source,'Report')), 'Report Summary');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summ(r=>r.channel,'Channel')), 'Channel Summary');
