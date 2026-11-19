@@ -751,7 +751,7 @@ async function loadPublished(){
       (parts[reads[j].k] = parts[reads[j].k]||[])[reads[j].i] = snaps[j].data().data;
     }
     const raw={}; RAW_KEYS.forEach(k=> raw[k] = parts[k] ? JSON.parse(parts[k].join('')) : []);
-    return {status:'ok', raw, meta:{at:m.generatedAt, files:m.sourceFiles||[]}};
+    return {status:'ok', raw, meta:{at:m.generatedAt, files:m.sourceFiles||[], by:m.publishedBy||''}};
   }catch(err){ console.error('Load failed', err); return {status:'error', error:err}; }
 }
 function updateLastUpdated(){
@@ -760,7 +760,8 @@ function updateLastUpdated(){
   el.style.display='flex';
   const at = new Date(lastPublished.at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
   const fl = (lastPublished.files||[]).filter(Boolean); const f = fl.length ? ` <span class="muted-part">&middot; ${fl.join(', ')}</span>` : '';
-  el.innerHTML = `<span class="dot"></span>Data as of ${at}${f}`;
+  const by = lastPublished.by ? ` <span class="muted-part">&middot; ${esc(lastPublished.by)}</span>` : '';
+  el.innerHTML = `<span class="dot"></span>Data as of ${at}${f}${by}`;
 }
 function rawLabel(){
   return `${RAW.requisitions.length.toLocaleString('en-IN')} promotion requisitions, ${RAW.certificates.length.toLocaleString('en-IN')} certificates, ${RAW.expenses.length.toLocaleString('en-IN')} expense requisitions`;
