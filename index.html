@@ -41,6 +41,11 @@
   .dashboard-loading{display:flex;align-items:center;gap:10px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:var(--navy);font-weight:600;}
   .dashboard-loading .spin{width:15px;height:15px;flex-shrink:0;border-radius:50%;border:2.5px solid var(--border);border-top-color:var(--navy);animation:spin .7s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
+  .sync-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:13px;font-weight:600;line-height:1.45;}
+  .sync-banner.ok{background:#EAF6F3;color:#1E6B5C;border:1px solid #CDE9E2;}
+  .sync-banner.warn{background:#FFF4E8;color:var(--brick);border:1px solid #F6D2B4;}
+  .sync-banner.busy{background:var(--navy-pale);color:var(--navy);border:1px solid var(--border);}
+  .sync-banner .msg small{display:block;font-weight:400;color:var(--muted);margin-top:2px;}
   .publish-status{margin-top:12px;font-size:12.5px;padding:9px 12px;border-radius:7px;}
   .publish-status.ok{background:#EAF6F3;color:var(--teal);}
   .publish-status.err{background:#FBEDE6;color:var(--brick);}
@@ -198,8 +203,8 @@
       <span class="footer-note">Upload either or both. A report you don't re-upload keeps its currently published data. Publishing updates the live dashboard for everyone with the link.</span>
     </div>
     <div class="err" id="errMsg"></div>
-    <div class="publish-status" id="publishStatus" style="display:none;"></div>
   </div>
+  <div class="sync-banner" id="syncBanner" style="display:none;"><span class="msg" id="syncMsg"></span><button class="btn btn-primary" id="retryPublishBtn" style="display:none;">Retry publish</button></div>
   <div class="loaded-bar" id="loadedBar">
     <div class="files"><span class="dot"></span><span id="loadedNames"></span></div>
     <button class="btn btn-ghost" id="changeBtn">Upload new file</button>
@@ -622,50 +627,96 @@ function splitChunks(str){
   }
   return parts;
 }
+/* ---- Local copy (IndexedDB) ----
+   Every upload is saved in this browser first, so a refresh never loses it — even if publishing to
+   Firestore fails or is still in progress. Firestore stays the shared source for everyone else; the
+   newer of the two is shown, and an unpublished local copy is flagged with a "Retry publish" button. */
+const IDB_NAME = 'mpMarketingDashboard', IDB_STORE = 'kv', IDB_KEY = 'latest';
+function idbOpen(){
+  return new Promise((res,rej)=>{
+    if(!('indexedDB' in window)) return rej(new Error('IndexedDB not available'));
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(){
+  try{ const d = await idbOpen(); return await new Promise((res,rej)=>{ const q=d.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(IDB_KEY); q.onsuccess=()=>res(q.result||null); q.onerror=()=>rej(q.error); }); }
+  catch(e){ console.warn('Local copy unavailable', e); return null; }
+}
+async function idbSet(val){
+  try{ const d = await idbOpen(); await new Promise((res,rej)=>{ const tx=d.transaction(IDB_STORE,'readwrite'); tx.objectStore(IDB_STORE).put(val, IDB_KEY); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); return true; }
+  catch(e){ console.warn('Could not save local copy', e); return false; }
+}
+function withTimeout(promise, ms, what){
+  return Promise.race([promise, new Promise((_,rej)=>setTimeout(()=>rej(new Error(what+' timed out after '+Math.round(ms/1000)+'s')), ms))]);
+}
+function explainFsError(err){
+  const code = (err && err.code) || '';
+  if(/Firebase not loaded/.test(err && err.message || '')) return 'Firebase scripts could not be loaded on this page (gstatic.com blocked or offline).';
+  if(code==='permission-denied') return 'Firestore refused access (permission-denied). Add a rule allowing read & write on "marketingDashboardData" in Firebase Console → Firestore → Rules, then click Retry publish.';
+  if(code==='unavailable' || /timed out|offline|network/i.test(err && err.message || '')) return 'Could not reach Firestore (network / offline). Check the connection, then click Retry publish.';
+  if(code==='resource-exhausted') return 'Firestore quota exceeded for today. Try again later.';
+  return 'Firestore error: '+((err && (err.code||err.message)) || err)+'.';
+}
+function setSync(kind, html, showRetry){
+  const b = document.getElementById('syncBanner');
+  if(!kind){ b.style.display='none'; return; }
+  b.className = 'sync-banner '+kind; b.style.display='flex';
+  document.getElementById('syncMsg').innerHTML = html;
+  document.getElementById('retryPublishBtn').style.display = showRetry ? '' : 'none';
+}
+let localMeta = null;   // {savedAt, files, published}
+
 async function publish(fileNames){
-  const el = document.getElementById('publishStatus');
   if(!DASH_COL){
-    el.className='publish-status err'; el.textContent='Not published — Firebase could not be reached from this page. The dashboard below is a local preview only.'; el.style.display='block';
-    return;
+    setSync('warn', 'Saved in this browser only — Firebase could not be loaded on this page, so others can\'t see this update yet.<small>Check that gstatic.com isn\'t blocked, then click Retry publish.</small>', true);
+    return false;
   }
+  setSync('busy', 'Publishing to Firestore… keep this tab open.', false);
   try{
     const writes=[], chunkCounts={};
     RAW_KEYS.forEach(k=>{
-      const parts = splitChunks(JSON.stringify(RAW[k]));
+      const parts = splitChunks(JSON.stringify(RAW[k]||[]));
       chunkCounts[k]=parts.length;
       parts.forEach((p,i)=>writes.push({id:`chunk_${k}_${i}`, data:p}));
     });
     let group=[], bytes=0; const groups=[];
     writes.forEach(w=>{ const b=u8len(w.data)+200; if(group.length && bytes+b>BATCH_MAX){groups.push(group);group=[];bytes=0;} group.push(w); bytes+=b; });
     if(group.length) groups.push(group);
-    for(const gr of groups){ const batch=db.batch(); gr.forEach(w=>batch.set(DASH_COL.doc(w.id),{data:w.data})); await batch.commit(); }
-    const generatedAt = new Date().toISOString();
-    await DASH_COL.doc('meta').set({generatedAt, sourceFiles:fileNames, chunkCounts});
+    for(const gr of groups){ const batch=db.batch(); gr.forEach(w=>batch.set(DASH_COL.doc(w.id),{data:w.data})); await withTimeout(batch.commit(), 90000, 'Saving data'); }
+    const generatedAt = (localMeta && localMeta.savedAt) || new Date().toISOString();
+    // meta is written LAST, so readers never see a half-written upload
+    await withTimeout(DASH_COL.doc('meta').set({generatedAt, sourceFiles:fileNames, chunkCounts}), 30000, 'Saving summary');
     lastPublished = {at:generatedAt, files:fileNames}; updateLastUpdated();
-    el.className='publish-status ok'; el.textContent='Published — everyone with the link now sees this data.'; el.style.display='block';
+    localMeta = {savedAt:generatedAt, files:fileNames, published:true};
+    await idbSet({raw:RAW, ...localMeta});
+    setSync('ok', 'Published — everyone with the link now sees this data.', false);
+    setTimeout(()=>{ if(document.getElementById('syncBanner').classList.contains('ok')) setSync(null); }, 8000);
+    return true;
   }catch(err){
-    console.error(err);
-    el.className='publish-status err'; el.textContent='Publishing failed ('+err.message+'). Check your connection and Firestore rules for "marketingDashboardData", then try again.'; el.style.display='block';
+    console.error('Publish failed', err);
+    setSync('warn', 'Saved in this browser, but NOT published — others still see the previous data.<small>'+esc(explainFsError(err))+'</small>', true);
+    return false;
   }
 }
+// Returns {status:'ok'|'empty'|'error', raw, meta, error}
 async function loadPublished(){
-  if(!DASH_COL) return false;
+  if(!DASH_COL) return {status:'error', error:new Error('Firebase not loaded')};
   try{
-    const meta = await DASH_COL.doc('meta').get();
-    if(!meta.exists) return false;
+    const meta = await withTimeout(DASH_COL.doc('meta').get({source:'server'}), 20000, 'Loading');
+    if(!meta.exists) return {status:'empty'};
     const m = meta.data(), cc = m.chunkCounts||{}, reads=[];
     RAW_KEYS.forEach(k=>{ for(let i=0;i<(cc[k]||0);i++) reads.push({k,i,ref:DASH_COL.doc(`chunk_${k}_${i}`)}); });
-    const snaps = await Promise.all(reads.map(r=>r.ref.get()));
+    const snaps = await withTimeout(Promise.all(reads.map(r=>r.ref.get({source:'server'}))), 60000, 'Loading data');
     const parts={};
     for(let j=0;j<reads.length;j++){
-      if(!snaps[j].exists){ console.error('Missing chunk', reads[j]); return false; }
+      if(!snaps[j].exists) return {status:'error', error:new Error('Published data is incomplete (missing '+reads[j].ref.id+') — re-upload and publish again')};
       (parts[reads[j].k] = parts[reads[j].k]||[])[reads[j].i] = snaps[j].data().data;
     }
-    const nr={}; RAW_KEYS.forEach(k=> nr[k] = parts[k] ? JSON.parse(parts[k].join('')) : []);
-    RAW = nr;
-    lastPublished = {at:m.generatedAt, files:m.sourceFiles||[]};
-    return true;
-  }catch(err){ console.error('Load failed', err); return false; }
+    const raw={}; RAW_KEYS.forEach(k=> raw[k] = parts[k] ? JSON.parse(parts[k].join('')) : []);
+    return {status:'ok', raw, meta:{at:m.generatedAt, files:m.sourceFiles||[]}};
+  }catch(err){ console.error('Load failed', err); return {status:'error', error:err}; }
 }
 function updateLastUpdated(){
   const el = document.getElementById('lastUpdatedBadge');
@@ -674,6 +725,9 @@ function updateLastUpdated(){
   const at = new Date(lastPublished.at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
   const fl = (lastPublished.files||[]).filter(Boolean); const f = fl.length ? ` <span class="muted-part">&middot; ${fl.join(', ')}</span>` : '';
   el.innerHTML = `<span class="dot"></span>Data as of ${at}${f}`;
+}
+function rawLabel(){
+  return `${RAW.requisitions.length.toLocaleString('en-IN')} promotion requisitions, ${RAW.certificates.length.toLocaleString('en-IN')} certificates, ${RAW.expenses.length.toLocaleString('en-IN')} expense requisitions`;
 }
 function showDashboard(label){
   document.getElementById('uploadCard').style.display='none';
@@ -684,10 +738,40 @@ function showDashboard(label){
 }
 (async function init(){
   document.getElementById('dashboardLoading').style.display='flex';
-  const ok = await loadPublished();
+  const [remote, local] = await Promise.all([loadPublished(), idbGet()]);
   document.getElementById('dashboardLoading').style.display='none';
-  if(ok){ updateLastUpdated(); const fl=(lastPublished.files||[]).filter(Boolean); showDashboard('Showing published dashboard' + (fl.length ? ' ('+fl.join(' + ')+')' : '')); }
+  const norm = r => { const o={}; RAW_KEYS.forEach(k=>o[k]=(r&&r[k])||[]); return o; };
+  const remoteAt = remote.status==='ok' ? new Date(remote.meta.at).getTime() : 0;
+  const localAt = local ? new Date(local.savedAt).getTime() : 0;
+  if(remote.status==='ok' && remoteAt >= localAt){
+    // Published data is the latest — show it (and refresh the local copy).
+    RAW = norm(remote.raw); lastPublished = remote.meta;
+    localMeta = {savedAt:remote.meta.at, files:remote.meta.files, published:true};
+    idbSet({raw:RAW, ...localMeta});
+    updateLastUpdated();
+    showDashboard('Showing published dashboard — '+rawLabel());
+    return;
+  }
+  if(local && local.raw){
+    // Newer local upload that never reached Firestore, or Firestore unreachable right now.
+    RAW = norm(local.raw); localMeta = {savedAt:local.savedAt, files:local.files||[], published:!!local.published};
+    lastPublished = {at:local.savedAt, files:local.files||[]}; updateLastUpdated();
+    showDashboard('Showing data saved in this browser — '+rawLabel());
+    if(!local.published)
+      setSync('warn', 'This upload is saved in this browser but has NOT been published — others still see the previous data.'+(remote.status==='error'?'<small>'+esc(explainFsError(remote.error))+'</small>':''), true);
+    else if(remote.status==='error')
+      setSync('warn', 'Showing this browser\'s saved copy — the live data couldn\'t be loaded just now.<small>'+esc(explainFsError(remote.error))+'</small>', false);
+    return;
+  }
+  if(remote.status==='error')
+    setSync('warn', 'Could not load the published dashboard.<small>'+esc(explainFsError(remote.error))+'</small>', false);
+  // else: nothing published yet → upload card is shown
 })();
+document.getElementById('retryPublishBtn').addEventListener('click', async ()=>{
+  const b = document.getElementById('retryPublishBtn'); b.disabled = true;
+  await publish((localMeta && localMeta.files) || []);
+  b.disabled = false;
+});
 
 /* ============ UPLOAD ============ */
 let file1 = null, file2 = null;
@@ -705,8 +789,9 @@ function readWB(file){
 document.getElementById('genBtn').addEventListener('click', async ()=>{
   const errEl = document.getElementById('errMsg'); errEl.style.display='none';
   const btn = document.getElementById('genBtn');
+  let next;
   try{
-    const next = { ...RAW };
+    next = { ...RAW };
     if(file1){
       const wb = await readWB(file1);
       const req = parseRequisitions(wb);
@@ -718,24 +803,30 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
       if(!exp.length) throw new Error('No expense rows were recognised in Report 2');
       next.expenses = exp;
     }
-    RAW = next;
-    const prevFiles = (lastPublished && lastPublished.files) || [];
-    const files = [file1 ? file1.name : prevFiles[0], file2 ? file2.name : prevFiles[1]].map(f=>f||'');
-    showDashboard(`Loaded ${RAW.requisitions.length.toLocaleString('en-IN')} promotion requisitions, ${RAW.certificates.length.toLocaleString('en-IN')} certificates, ${RAW.expenses.length.toLocaleString('en-IN')} expense requisitions`);
-    document.getElementById('genNote').textContent = 'Generated '+new Date().toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})+' from the uploaded reports.';
-    btn.disabled = true; btn.textContent = 'Publishing…';
-    await publish(files);
-    btn.disabled = false; btn.textContent = 'Generate & publish dashboard';
   }catch(err){
     console.error(err);
     errEl.textContent = 'Could not read the file(s): '+err.message+'. Report 1 should be the Sales Promotion Requisition Payment export and Report 2 the Expense Requisition Details export from IN4 ERP.';
     errEl.style.display='block';
+    return;
   }
+  RAW = next;
+  const prevFiles = (localMeta && localMeta.files) || (lastPublished && lastPublished.files) || [];
+  const files = [file1 ? file1.name : prevFiles[0], file2 ? file2.name : prevFiles[1]].map(f=>f||'');
+  const savedAt = new Date().toISOString();
+  localMeta = {savedAt, files, published:false};
+  await idbSet({raw:RAW, ...localMeta});            // survives a refresh from this moment on
+  lastPublished = {at:savedAt, files}; updateLastUpdated();
+  showDashboard('Loaded '+rawLabel());
+  document.getElementById('genNote').textContent = 'Generated '+new Date(savedAt).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})+' from the uploaded reports.';
+  file1 = file2 = null;
+  ['1','2'].forEach(n=>{ document.getElementById('file'+n).value=''; document.getElementById('fname'+n).textContent='Click to choose file (.xlsx)'; document.getElementById('drop'+n).classList.remove('filled'); });
+  btn.disabled = true;
+  await publish(files);
 });
 document.getElementById('changeBtn').addEventListener('click', ()=>{
   document.getElementById('uploadCard').style.display='block';
   document.getElementById('loadedBar').style.display='none';
-  document.getElementById('publishStatus').style.display='none';
+  document.getElementById('uploadCard').scrollIntoView({behavior:'smooth', block:'start'});
 });
 document.getElementById('printBtn').addEventListener('click', ()=>window.print());
 
