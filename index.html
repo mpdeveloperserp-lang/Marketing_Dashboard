@@ -334,9 +334,11 @@ Chart.defaults.animation = false;
 Chart.defaults.font.family = "'Inter', sans-serif";
 
 /* ============ FIRESTORE ============
-   Same Firebase project as the Sales & CRM dashboard, but its own collection ('marketingDashboardData')
-   so publishing one never touches the other. Firestore Security Rules must allow read + write on this
-   collection (same as 'dashboardData' today) or publish/load will fail with a permission error. */
+   Stored in the SAME collection as the Sales & CRM dashboard ('dashboardData'), which the existing
+   Firestore rules already allow, but under its own document ids — every id starts with 'mkt_'
+   (mkt_meta, mkt_chunk_<key>_<n>). The Sales dashboard only reads 'meta' and 'chunk_*', so the two
+   dashboards never read or overwrite each other's data. */
+const DOC_PREFIX = 'mkt_';
 const firebaseConfig = {
   apiKey: "AIzaSyC65rACXQiJMzwN0dbTgxIns0Ggn6Myl0I",
   authDomain: "mp-dashboard-f9bf5.firebaseapp.com",
@@ -352,7 +354,7 @@ try{
     firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
     db.enablePersistence().catch(err=>console.warn('Firestore persistence not enabled:', err.code||err.message));
-    DASH_COL = db.collection('marketingDashboardData');
+    DASH_COL = db.collection('dashboardData');
   }
 }catch(e){ console.warn('Firebase unavailable — running in local-only mode', e); }
 
@@ -654,7 +656,7 @@ function withTimeout(promise, ms, what){
 function explainFsError(err){
   const code = (err && err.code) || '';
   if(/Firebase not loaded/.test(err && err.message || '')) return 'Firebase scripts could not be loaded on this page (gstatic.com blocked or offline).';
-  if(code==='permission-denied') return 'Firestore refused access (permission-denied). Add a rule allowing read & write on "marketingDashboardData" in Firebase Console → Firestore → Rules, then click Retry publish.';
+  if(code==='permission-denied') return 'Firestore refused access (permission-denied). Check that the Firestore rules still allow read & write on the "dashboardData" collection (Firebase Console → Firestore → Rules), then click Retry publish.';
   if(code==='unavailable' || /timed out|offline|network/i.test(err && err.message || '')) return 'Could not reach Firestore (network / offline). Check the connection, then click Retry publish.';
   if(code==='resource-exhausted') return 'Firestore quota exceeded for today. Try again later.';
   return 'Firestore error: '+((err && (err.code||err.message)) || err)+'.';
@@ -679,7 +681,7 @@ async function publish(fileNames){
     RAW_KEYS.forEach(k=>{
       const parts = splitChunks(JSON.stringify(RAW[k]||[]));
       chunkCounts[k]=parts.length;
-      parts.forEach((p,i)=>writes.push({id:`chunk_${k}_${i}`, data:p}));
+      parts.forEach((p,i)=>writes.push({id:`${DOC_PREFIX}chunk_${k}_${i}`, data:p}));
     });
     let group=[], bytes=0; const groups=[];
     writes.forEach(w=>{ const b=u8len(w.data)+200; if(group.length && bytes+b>BATCH_MAX){groups.push(group);group=[];bytes=0;} group.push(w); bytes+=b; });
@@ -687,7 +689,7 @@ async function publish(fileNames){
     for(const gr of groups){ const batch=db.batch(); gr.forEach(w=>batch.set(DASH_COL.doc(w.id),{data:w.data})); await withTimeout(batch.commit(), 90000, 'Saving data'); }
     const generatedAt = (localMeta && localMeta.savedAt) || new Date().toISOString();
     // meta is written LAST, so readers never see a half-written upload
-    await withTimeout(DASH_COL.doc('meta').set({generatedAt, sourceFiles:fileNames, chunkCounts}), 30000, 'Saving summary');
+    await withTimeout(DASH_COL.doc(DOC_PREFIX+'meta').set({generatedAt, sourceFiles:fileNames, chunkCounts}), 30000, 'Saving summary');
     lastPublished = {at:generatedAt, files:fileNames}; updateLastUpdated();
     localMeta = {savedAt:generatedAt, files:fileNames, published:true};
     await idbSet({raw:RAW, ...localMeta});
@@ -704,10 +706,10 @@ async function publish(fileNames){
 async function loadPublished(){
   if(!DASH_COL) return {status:'error', error:new Error('Firebase not loaded')};
   try{
-    const meta = await withTimeout(DASH_COL.doc('meta').get({source:'server'}), 20000, 'Loading');
+    const meta = await withTimeout(DASH_COL.doc(DOC_PREFIX+'meta').get({source:'server'}), 20000, 'Loading');
     if(!meta.exists) return {status:'empty'};
     const m = meta.data(), cc = m.chunkCounts||{}, reads=[];
-    RAW_KEYS.forEach(k=>{ for(let i=0;i<(cc[k]||0);i++) reads.push({k,i,ref:DASH_COL.doc(`chunk_${k}_${i}`)}); });
+    RAW_KEYS.forEach(k=>{ for(let i=0;i<(cc[k]||0);i++) reads.push({k,i,ref:DASH_COL.doc(`${DOC_PREFIX}chunk_${k}_${i}`)}); });
     const snaps = await withTimeout(Promise.all(reads.map(r=>r.ref.get({source:'server'}))), 60000, 'Loading data');
     const parts={};
     for(let j=0;j<reads.length;j++){
