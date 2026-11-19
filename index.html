@@ -238,6 +238,7 @@
     <div class="tabs">
       <button class="tab-btn active" data-page="overview">Overview</button>
       <button class="tab-btn" data-page="spend">Spend</button>
+      <button class="tab-btn" data-page="cp">Channel Partners</button>
       <button class="tab-btn" data-page="vendors">Vendors</button>
       <button class="tab-btn" data-page="payments">Payments</button>
       <button class="tab-btn" data-page="projects">Projects</button>
@@ -247,7 +248,7 @@
       <div class="section-title group first"><h2>Overview</h2><div class="line"></div></div>
       <div class="section-title"><h2>Budget Utilisation</h2><div class="line"></div></div>
       <div class="chart-grid">
-        <div class="chart-card"><h3>Committed spend by financial year — spent / outstanding / available (₹ L)</h3><div class="wrap tall"><canvas id="chFY"></canvas></div></div>
+        <div class="chart-card"><h3>Committed spend by <span class="pw">financial year</span> — spent / outstanding / available (₹ L)</h3><div class="wrap tall"><canvas id="chFY"></canvas></div></div>
         <div class="chart-card"><h3>Brand vs project-related spend (committed)</h3><div class="wrap tall"><canvas id="chPromoType"></canvas></div></div>
       </div>
       <div class="chart-grid one">
@@ -260,12 +261,25 @@
       <div class="section-title"><h2>Channel &amp; Activity</h2><div class="line"></div></div>
       <div class="chart-grid even">
         <div class="chart-card"><h3>Committed spend by channel (₹ L)</h3><div class="wrap tall"><canvas id="chChannel"></canvas></div></div>
-        <div class="chart-card"><h3>Channel mix by financial year (₹ L)</h3><div class="wrap tall"><canvas id="chChannelFY"></canvas></div></div>
+        <div class="chart-card"><h3>Channel mix by <span class="pw">financial year</span> (₹ L)</h3><div class="wrap tall"><canvas id="chChannelFY"></canvas></div></div>
       </div>
       <div class="chart-grid one">
-        <div class="chart-card"><h3>Committed spend by activity / expense type (top 15, ₹ L)</h3><div class="wrap xtall"><canvas id="chActivity"></canvas></div>
-        <p class="chart-note">Channel groups Report 1's Activity Type and Report 2's Expense Sub Type (e.g. "BTL - …" → BTL; "CP - …", Referral Fee, Brokerage → Channel Partner &amp; Referrals; Facebook / Google → Digital). The mapping lives in <code>channelOf()</code> in this file if a type needs moving.</p></div>
+        <div class="chart-card"><h3>Committed spend by activity / expense type — excl. Channel Partner (top 15, ₹ L)</h3><div class="wrap xtall"><canvas id="chActivity"></canvas></div>
+        <p class="chart-note">Channel Partner activities are listed separately in the <b>Channel Partners</b> section below. Channel groups Report 1's Activity Type and Report 2's Expense Sub Type: "CP - …", CP_Sale_Commission, Commission &amp; Brokerage → Channel Partner (CP); Referral Fee / Customer / Employee Referral → Referrals; brokerage whose remarks mention land or a mediator → Land Brokerage &amp; Mediator; Facebook / Google → Digital; "BTL - …" → BTL. The mapping lives in <code>channelOf()</code> in this file.</p></div>
       </div>
+    </div>
+
+    <div class="page" id="page-cp">
+      <div class="section-title group"><h2>Channel Partners</h2><div class="line"></div></div>
+      <div class="chart-grid even">
+        <div class="chart-card"><h3>Top 15 channel partners — commission &amp; brokerage vs events &amp; expenses (₹ L)</h3><div class="wrap xtall"><canvas id="chCpPartner"></canvas></div></div>
+        <div class="chart-card"><h3>Channel partner spend by activity / expense type (₹ L)</h3><div class="wrap xtall"><canvas id="chCpActivity"></canvas></div></div>
+      </div>
+      <div class="chart-grid even">
+        <div class="chart-card"><h3>CP payments by <span class="pw">financial year</span> — spent / outstanding / available (₹ L)</h3><div class="wrap tall"><canvas id="chCpTrend"></canvas></div></div>
+        <div class="chart-card"><h3>Channel partners with amount outstanding (top 15, ₹ L)</h3><div class="wrap tall"><canvas id="chCpOut"></canvas></div></div>
+      </div>
+      <p class="chart-note" id="cpNote"></p>
     </div>
 
     <div class="page" id="page-vendors">
@@ -280,10 +294,10 @@
       <div class="section-title group"><h2>Payments</h2><div class="line"></div></div>
       <div class="chart-grid even">
         <div class="chart-card"><h3>Certified value by certificate status (₹ L)</h3><div class="wrap tall"><canvas id="chCertStatus"></canvas></div></div>
-        <div class="chart-card"><h3>Total spent by financial year (₹ L, by processed date)</h3><div class="wrap tall"><canvas id="chPaidFY"></canvas></div></div>
+        <div class="chart-card"><h3>Total spent by <span class="pw">financial year</span> (₹ L, by processed date)</h3><div class="wrap tall"><canvas id="chPaidFY"></canvas></div></div>
       </div>
       <div class="chart-grid even">
-        <div class="chart-card"><h3>Certified value by report &amp; financial year (₹ L, by invoice date)</h3><div class="wrap"><canvas id="chSourceFY"></canvas></div></div>
+        <div class="chart-card"><h3>Certified value by report &amp; <span class="pw">financial year</span> (₹ L, by invoice date)</h3><div class="wrap"><canvas id="chSourceFY"></canvas></div></div>
         <div class="chart-card"><h3>Outstanding by invoice age (₹ L, days since invoice date)</h3><div class="wrap"><canvas id="chAgeing"></canvas></div></div>
       </div>
     </div>
@@ -388,11 +402,17 @@ function normalizeProjectName(name){
   const k = Object.keys(PROJECT_NAME_OVERRIDE).find(x=>x.toLowerCase()===t.toLowerCase());
   return k ? PROJECT_NAME_OVERRIDE[k] : t;
 }
-// Activity Type -> Channel. Order matters: the first rule that matches wins.
-function channelOf(activity){
+// Activity Type / Expense Sub Type -> Channel. Order matters: the first rule that matches wins.
+// remarks (optional): brokerage / commission whose remarks show it was paid for LAND or to a MEDIATOR is
+// land-acquisition cost, not a Channel Partner sales payment, so it is kept out of CP.
+const CH_CP = 'Channel Partner (CP)', CH_REF = 'Referrals', CH_LAND = 'Land Brokerage & Mediator';
+const LAND_RE = /\bland\b|mediator|colony|\bplot|acre/i;
+function channelOf(activity, remarks){
   const t = (activity||'').toLowerCase().trim();
   if(!t) return 'Other';
-  if(/^cp[\s_-]|channel partner|commission|brokerage|referral/.test(t)) return 'Channel Partner & Referrals';
+  if(/commission|brokerage/.test(t) && !/^cp[\s_-]/.test(t) && LAND_RE.test(remarks||'')) return CH_LAND;
+  if(/^cp[\s_-]|channel partner|commission|brokerage/.test(t)) return CH_CP;
+  if(/referral/.test(t)) return CH_REF;
   if(/ad agency|pr agency|freelancer|consultant|retainer/.test(t)) return 'Agencies & Retainers';
   if(/facebook|google|online portal|web ?site|influencer|saas|subscription|digital/.test(t)) return 'Digital';
   if(/btl|stall|exhibition|rental|posm|signage|medians|sales material|collateral|^events?$|sponsorship|activation|business promotion/.test(t)) return 'BTL';
@@ -568,6 +588,12 @@ function parseExpenses(wb){
       netCertified: num(g(r,'net certified amount')), deductionTax: num(g(r,'total deduction tax')),
       debitNote: num(g(r,'debit note adjusted')), payable: num(g(r,'amount payable')),
       outstanding: num(g(r,'outstanding')), remarks: s(g(r,'remarks')),
+      // Columns added to the ERP export in Nov-2026 (null when an older export without them is uploaded)
+      advancePaid: col['advance paid']!==undefined ? num(g(r,'advance paid')) : null,
+      advanceTds: col['advance tds']!==undefined ? num(g(r,'advance tds')) : null,
+      certificatePaid: col['certificate paid']!==undefined ? num(g(r,'certificate paid')) : null,
+      totalPaidCash: col['total paid']!==undefined ? num(g(r,'total paid')) : null,
+      totalSettled: col['total settled']!==undefined ? num(g(r,'total settled')) : null,
       modeOfPayment: s(g(r,'mode of payment')), status: s(g(r,'status')),
     });
   }
@@ -584,28 +610,36 @@ function parseExpenses(wb){
 function vendorKey(n){ return (n||'').toLowerCase().replace(/\b(pvt|private|ltd|limited|llp)\b/g,'').replace(/[^a-z0-9]/g,'') || 'unspecified'; }
 function buildUnified(){
   const req = [], cert = [], adv = [];
-  RAW.requisitions.forEach(r=>req.push({ ...r, source:SRC_PROMO, refId:'PR-'+r.requestId }));
-  RAW.certificates.forEach(c=>cert.push({ ...c, source:SRC_PROMO, refId:'PR-'+c.requestId, certRef:'CERT-'+c.certId, invoiceNo:'', advanceAdjusted:c.advanceRecovered||0 }));
+  // channel is recalculated here (not trusted from stored data) so mapping changes apply to already-published data too
+  RAW.requisitions.forEach(r=>req.push({ ...r, channel:channelOf(r.activityType, r.description), source:SRC_PROMO, refId:'PR-'+r.requestId, cashPaid:r.paidAmount||0 }));
+  RAW.certificates.forEach(c=>cert.push({ ...c, channel:channelOf(c.activityType, c.description), source:SRC_PROMO, refId:'PR-'+c.requestId, certRef:'CERT-'+c.certId, invoiceNo:'', advanceAdjusted:c.advanceRecovered||0, cashPaid:c.paidAmount||0 }));
   RAW.expenses.forEach(e=>{
     const common = {
       source:SRC_EXP, refId:'EX-'+e.expenseId, requestId:e.expenseId, company:e.company, project:e.project, agent:e.vendor,
       requestDate:e.invoiceDate, createdDate:e.invoiceDate,
       promoType: e.project===BRAND_BUCKET ? 'Brand Promotion Related' : 'Project Related',
-      activityType:e.subType, channel:channelOf(e.subType), description:e.remarks,
+      activityType:e.subType, channel:channelOf(e.subType, e.remarks), description:e.remarks,
     };
-    const paid = e.gross - e.outstanding;
+    // Invoices: "spent" = TOTAL SETTLED (cash paid + advance adjusted + TDS + debit note) — the same basis as the
+    // promotion report's TOTAL PAID. Older exports without that column: Gross − Outstanding (identical on every row).
+    const paid = (e.totalSettled!==null && e.totalSettled!==undefined) ? e.totalSettled : e.gross - e.outstanding;
+    const cashPaid = (e.certificatePaid!==null && e.certificatePaid!==undefined) ? e.certificatePaid : e.payable - e.outstanding;
     if(/advance/i.test(e.typeOfPay)){
-      adv.push({ ...common, requested:e.gross, given:paid, unpaid:e.outstanding, tds:e.deductionTax, status:titleStatus(e.status), processedDate:e.processedDate });
+      // Advance value released = ADVANCE PAID (cash) + ADVANCE TDS — the amount later recovered via "Advance Adjusted".
+      const hasNew = e.advancePaid!==null && e.advancePaid!==undefined;
+      const given = hasNew ? e.advancePaid + (e.advanceTds||0) : e.gross - e.outstanding;
+      adv.push({ ...common, requested:e.gross, given, cashPaid: hasNew ? e.advancePaid : given - e.deductionTax, unpaid:e.outstanding,
+        tds: hasNew ? (e.advanceTds||0) : e.deductionTax, status:titleStatus(e.status), processedDate:e.processedDate });
       return;
     }
     const st = titleStatus(e.status);
     req.push({ ...common, budget:e.gross, status: (st==='Submitted'||st==='ReSubmit') ? st : 'Approved',
       advance:0, advanceRecovered:0, baseAmt:e.gross-e.additionTax, gstAmt:e.additionTax, tds:e.deductionTax, tdsRecovered:0,
-      netAmount:e.netCertified, paidAmount:e.payable-e.outstanding, totalPaid:paid, outstanding:e.outstanding, available:0 });
+      netAmount:e.netCertified, paidAmount:cashPaid, cashPaid, totalPaid:paid, outstanding:e.outstanding, available:0 });
     cert.push({ ...common, certId:e.expenseId, certRef:'EX-'+e.expenseId, certStatus:st, certCreatedDate:e.invoiceDate,
       invoiceDate:e.invoiceDate, processedDate:e.processedDate, invoiceNo:e.invoiceNo,
       advance:0, advanceRecovered:e.advanceAdjusted, advanceAdjusted:e.advanceAdjusted,
-      baseAmt:e.gross-e.additionTax, gstAmt:e.additionTax, tds:e.deductionTax, netAmount:e.netCertified, paidAmount:e.payable-e.outstanding,
+      baseAmt:e.gross-e.additionTax, gstAmt:e.additionTax, tds:e.deductionTax, netAmount:e.netCertified, paidAmount:cashPaid, cashPaid,
       totalCertified:e.gross, totalPaid:paid, outstanding:e.outstanding });
   });
   // One display name per vendor across both reports — the spelling carrying the most spend wins.
@@ -836,7 +870,7 @@ document.getElementById('printBtn').addEventListener('click', ()=>window.print()
    Report 1 rows filter by PROMOTION REQUEST DATE (certificates inherit their parent requisition's date);
    Report 2 rows filter by INVOICE DATE (an expense requisition is raised against its invoice). Either way
    Committed = Certified + Unutilised and Certified = Paid + Outstanding reconcile for any selection. The
-   "by financial year" trend charts ignore FY/Month (they'd collapse to one bar) but respect the rest. */
+   year-trend charts follow FY/Month too: they switch to one bar per month of the selected period. */
 const FILTERS = [
   {key:'source',   wrap:'fSourceWrap',   all:'Both Reports',        field:'source'},
   {key:'company',  wrap:'fCompanyWrap',  all:'All Companies',       field:'company'},
@@ -914,10 +948,25 @@ function matchDate(r){
   const f = fyOf(r.requestDate); return !!f && fy.includes(f.label);
 }
 const periodActive = () => filterState.fy.length>0 || filterState.month.length>0;
+// Same FY / Month test as matchDate(), but on any date field (processed date, invoice date…)
+function matchPeriodIso(iso){
+  const fy = filterState.fy, mo = filterState.month;
+  if(!fy.length && !mo.length) return true;
+  if(mo.length){ const m = monthOf(iso); return !!m && mo.includes(m.key); }
+  const f = fyOf(iso); return !!f && fy.includes(f.label);
+}
+// Trend charts: one bar per financial year when no period is chosen; one bar per MONTH of the
+// selected FY(s) / month(s) once a period is chosen — so they follow the filter instead of staying cumulative.
+function periodBucket(iso){
+  if(periodActive()){ const m = monthOf(iso); return m ? {label:m.label, s:m.key} : null; }
+  const f = fyOf(iso); return f ? {label:f.label, s:String(f.sortKey)} : null;
+}
+const bySort = g => (a,b) => g[a].s < g[b].s ? -1 : g[a].s > g[b].s ? 1 : 0;
 
 /* ============ FORMATTING ============ */
 function fmtINRCr(n){
   if(n===null||n===undefined||isNaN(n)) return '—';
+  if(Math.abs(n)<1) return '₹0';   // rounding residue from paise
   const a = Math.abs(n);
   if(a>=1e7) return '₹'+(n/1e7).toLocaleString('en-IN',{maximumFractionDigits:2})+' Cr';
   if(a>=1e5) return '₹'+(n/1e5).toLocaleString('en-IN',{maximumFractionDigits:2})+' L';
@@ -983,7 +1032,7 @@ function renderFilterSummary(){
   const el = document.getElementById('filterSummary');
   if(!chips.length){ el.style.display='none'; return; }
   el.style.display='flex';
-  el.innerHTML = chips.map(c=>`<span class="filter-chip">${esc(c)}</span>`).join('') + `<span class="filter-note">Financial Year / Month go by Promotion Request Date (Report 1) and Invoice Date (Report 2). "By financial year" trend charts always show the full timeline for the other selections.</span>`;
+  el.innerHTML = chips.map(c=>`<span class="filter-chip">${esc(c)}</span>`).join('') + `<span class="filter-note">Financial Year / Month go by Promotion Request Date (Report 1) and Invoice Date (Report 2). Trend charts switch from yearly to month-wise bars for the selected period.</span>`;
 }
 function bySource(rows, k){ let p=0,x=0; rows.forEach(r=>{ if(r.source===SRC_PROMO) p+=(r[k]||0); else x+=(r[k]||0); }); return {p,x,t:p+x}; }
 const hasExp = () => U.req.some(r=>r.source===SRC_EXP) || U.adv.length>0;
@@ -1018,6 +1067,13 @@ function renderKPIs(){
   const tdsTotal = sum(CERT,'tds') + sum(advTdsRows,'tds');
   const nP = REQ.filter(r=>r.source===SRC_PROMO).length, nX = REQ.length - nP;
   const top = vendors[0];
+  // ---- Channel Partner (CP) payments ----
+  const cpReq = REQ.filter(isCP), cpCert = CERT.filter(isCP);
+  const cpOutRows = cpCert.filter(c=>c.outstanding>0.5).map(withAge).sort((a,b)=>(b.ageDays??-1)-(a.ageDays??-1));
+  const cpVendors = vendorSummary(cpReq, cpCert);
+  const cpB = bySource(cpReq,'budget'), cpPd = bySource(cpReq,'totalPaid'), cpO = sum(cpReq,'outstanding'), cpAv = sum(cpReq,'available');
+  const cpComm = sum(cpReq.filter(r=>cpKind(r.activityType)===CP_COMM),'budget');
+  const cpTop = cpVendors[0];
   Object.assign(drill, {
     requisitions: {cols:'req', rows:REQ},
     pending: {cols:'req', rows:pending},
@@ -1032,6 +1088,12 @@ function renderKPIs(){
     advance: {cols:'adv', rows:advRows},
     advPending: {cols:'adv', rows:advPending},
     certs: {cols:'cert', rows:CERT},
+    cpReq: {cols:'req', rows:cpReq},
+    cpPaid: {cols:'req', rows:cpReq.filter(r=>r.totalPaid>0.5)},
+    cpOut: {cols:'certOut', rows:cpOutRows},
+    cpAvail: {cols:'req', rows:cpReq.filter(r=>r.available>0.5).sort((a,b)=>b.available-a.available)},
+    cpPartners: {cols:'vendor', rows:cpVendors},
+    exclCp: {cols:'req', rows:REQ.filter(r=>r.channel!==CH_CP)},
   });
   const tile = (lbl,key,val,sub) => `<div class="kpi" data-drill="${key}"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="sub">${sub}</div></div>`;
   const per = periodActive() ? 'selected period' : 'all-time';
@@ -1049,6 +1111,13 @@ function renderKPIs(){
     tile('Total Outstanding','outstanding',fmtINRCr(out.t), `${fmtNum(certsOut.length)} invoices pending` + (both ? ` &middot; ${split(out)}` : '')) +
     tile('Total Amount Available','available',fmtINRCr(avail), budget.p ? 'Approved promotion budget not yet invoiced' : 'Applies to promotion requisitions only') +
     tile('Certificates / Invoices','certs',fmtNum(CERT.length),`<b>${fmtNum(CERT.length-certsUnpaid.length)}</b> paid &middot; ${fmtNum(certsUnpaid.length)} in process`) +
+    `<div class="kpi-group-label">Channel Partner (CP) payments</div>` +
+    tile('CP Committed','cpReq',fmtINRCr(cpB.t), `${fmtPct(budget.t?cpB.t/budget.t*100:0)} of committed &middot; ${fmtINRCr(cpComm)} commission + ${fmtINRCr(cpB.t-cpComm)} events`) +
+    tile('CP Total Spent','cpPaid',fmtINRCr(cpPd.t), both ? split(cpPd) : `${fmtPct(cpB.t?cpPd.t/cpB.t*100:0)} of CP committed`) +
+    tile('CP Total Outstanding','cpOut',fmtINRCr(cpO),`${fmtNum(cpOutRows.length)} CP invoices pending payment`) +
+    tile('CP Amount Available','cpAvail',fmtINRCr(cpAv),'Approved CP budget not yet invoiced') +
+    tile('Channel Partners','cpPartners',fmtNum(cpVendors.length), cpTop ? `Largest: ${esc(cpTop.agent)} (${fmtINRCr(cpTop.budget)})` : '—') +
+    tile('Marketing excl. CP','exclCp',fmtINRCr(budget.t-cpB.t),`Spent ${fmtINRCr(paid.t-cpPd.t)} &middot; outstanding ${fmtINRCr(out.t-cpO)}`) +
     `<div class="kpi-group-label">Tax &amp; advances</div>` +
     tile('Base Amount','tax',fmtINRCr(sum(CERT,'baseAmt')),'Certified value before GST') +
     tile('GST','tax',fmtINRCr(sum(CERT,'gstAmt')),'GST on certified invoices') +
@@ -1131,15 +1200,19 @@ function donut(key, id, labels, data, colors, emptyText){
     plugins:[ChartDataLabels]
   });
 }
-const CHANNEL_ORDER = ['Agencies & Retainers','Digital','BTL','ATL & Brand','Channel Partner & Referrals','Other'];
-function channelColors(){ return { 'Agencies & Retainers':css('--navy'), 'Digital':css('--gold'), 'BTL':'#5C63B8', 'ATL & Brand':css('--brick'), 'Channel Partner & Referrals':css('--gold-light'), 'Other':'#A9AECF' }; }
+const isCP = r => r.channel===CH_CP;
+const CP_COMM = 'Commission & Brokerage', CP_EVT = 'Events & Expenses';
+function cpKind(activity){ return /event|expense/i.test(activity||'') ? CP_EVT : CP_COMM; }
+const CHANNEL_ORDER = ['Agencies & Retainers','Digital','BTL','ATL & Brand',CH_CP,CH_REF,CH_LAND,'Other'];
+function channelColors(){ return { 'Agencies & Retainers':css('--navy'), 'Digital':css('--gold'), 'BTL':'#5C63B8', 'ATL & Brand':css('--brick'), [CH_CP]:css('--gold-light'), [CH_REF]:'#2E8B7A', [CH_LAND]:'#7A5C3E', 'Other':'#A9AECF' }; }
 function openFilteredDrill(title, rows){ openDrill(title, `${fmtNum(rows.length)} requisitions &middot; ${fmtINRCr(sum(rows,'budget'))} committed`, 'req', rows); }
 function renderCharts(){
   const navy=css('--navy'), gold=css('--gold'), brick=css('--brick'), teal=css('--teal'), muted='#A9AECF';
-  // FY stacked (trend: ignores FY/Month)
+  document.querySelectorAll('.pw').forEach(s=>s.textContent = periodActive() ? 'month' : 'financial year');
+  // Committed by FY — or by month within the selected period
   const fyG = {};
-  REQ_DIMS.forEach(r=>{ const f=fyOf(r.requestDate); if(!f) return; const g=fyG[f.label]=fyG[f.label]||{s:f.sortKey,paid:0,out:0,avail:0}; g.paid+=r.totalPaid; g.out+=r.outstanding; g.avail+=r.available; });
-  const fyL = Object.keys(fyG).sort((a,b)=>fyG[a].s-fyG[b].s);
+  REQ.forEach(r=>{ const f=periodBucket(r.requestDate); if(!f) return; const g=fyG[f.label]=fyG[f.label]||{s:f.s,paid:0,out:0,avail:0}; g.paid+=r.totalPaid; g.out+=r.outstanding; g.avail+=r.available; });
+  const fyL = Object.keys(fyG).sort(bySort(fyG));
   vbar('fy','chFY', fyL, [
     {label:'Spent', data:fyL.map(k=>L(fyG[k].paid)), backgroundColor:navy, stack:'a'},
     {label:'Outstanding', data:fyL.map(k=>L(fyG[k].out)), backgroundColor:gold, stack:'a'},
@@ -1167,13 +1240,41 @@ function renderCharts(){
     k=>openFilteredDrill('Channel: '+k, REQ.filter(r=>r.channel===k)));
   // Channel x FY (trend)
   const cfy = {}; const chSet = new Set();
-  REQ_DIMS.forEach(r=>{ const f=fyOf(r.requestDate); if(!f) return; chSet.add(r.channel); const g=cfy[f.label]=cfy[f.label]||{s:f.sortKey}; g[r.channel]=(g[r.channel]||0)+r.budget; });
-  const cfyL = Object.keys(cfy).sort((a,b)=>cfy[a].s-cfy[b].s);
+  REQ.forEach(r=>{ const f=periodBucket(r.requestDate); if(!f) return; chSet.add(r.channel); const g=cfy[f.label]=cfy[f.label]||{s:f.s}; g[r.channel]=(g[r.channel]||0)+r.budget; });
+  const cfyL = Object.keys(cfy).sort(bySort(cfy));
   vbar('channelFY','chChannelFY', cfyL, CHANNEL_ORDER.filter(c=>chSet.has(c)).map(c=>({label:c, data:cfyL.map(k=>L(cfy[k][c]||0)), backgroundColor:cc[c], stack:'a'})), 'No requisitions for the current filter.', true);
   // Activity
-  const act = groupBy(REQ, r=>r.activityType, ['budget']).sort((a,b)=>b.budget-a.budget).slice(0,15);
+  const act = groupBy(REQ.filter(r=>!isCP(r)), r=>r.activityType, ['budget']).sort((a,b)=>b.budget-a.budget).slice(0,15);
   hbar('activity','chActivity', act.map(a=>a.key), act.map(a=>L(a.budget)), act.map(a=>cc[channelOf(a.key)]||muted), 'No requisitions for the current filter.',
     k=>openFilteredDrill('Activity: '+k, REQ.filter(r=>r.activityType===k)));
+  // ---- Channel Partners section ----
+  const cpReq = REQ.filter(isCP), cpCert = CERT.filter(isCP);
+  const cpV = {};
+  cpReq.forEach(r=>{ const v=cpV[r.agent]=cpV[r.agent]||{agent:r.agent,comm:0,evt:0,out:0}; if(cpKind(r.activityType)===CP_COMM) v.comm+=r.budget; else v.evt+=r.budget; v.out+=r.outstanding; });
+  const cpVTop = Object.values(cpV).sort((a,b)=>(b.comm+b.evt)-(a.comm+a.evt)).slice(0,15);
+  hbarStack('cpPartner','chCpPartner', cpVTop.map(v=>v.agent), [
+    {label:'Commission & brokerage', data:cpVTop.map(v=>L(v.comm)), backgroundColor:navy},
+    {label:'Events & expenses', data:cpVTop.map(v=>L(v.evt)), backgroundColor:gold},
+  ], 'No channel partner payments for the current filter.', k=>openFilteredDrill('Channel partner: '+k, cpReq.filter(r=>r.agent===k)));
+  const cpAct = groupBy(cpReq, r=>r.activityType+(r.source===SRC_EXP?' (expense)':''), ['budget']).sort((a,b)=>b.budget-a.budget);
+  hbar('cpActivity','chCpActivity', cpAct.map(a=>a.key), cpAct.map(a=>L(a.budget)), cpAct.map(a=>cpKind(a.key.replace(/ \(expense\)$/,''))===CP_COMM?navy:gold), 'No channel partner payments for the current filter.',
+    k=>openFilteredDrill('CP activity: '+k, cpReq.filter(r=>(r.activityType+(r.source===SRC_EXP?' (expense)':''))===k)));
+  const cpT = {};
+  cpReq.forEach(r=>{ const f=periodBucket(r.requestDate); if(!f) return; const g=cpT[f.label]=cpT[f.label]||{s:f.s,paid:0,out:0,avail:0}; g.paid+=r.totalPaid; g.out+=r.outstanding; g.avail+=r.available; });
+  const cpTL = Object.keys(cpT).sort(bySort(cpT));
+  vbar('cpTrend','chCpTrend', cpTL, [
+    {label:'Spent', data:cpTL.map(k=>L(cpT[k].paid)), backgroundColor:navy, stack:'a'},
+    {label:'Outstanding', data:cpTL.map(k=>L(cpT[k].out)), backgroundColor:gold, stack:'a'},
+    {label:'Available', data:cpTL.map(k=>L(Math.max(0,cpT[k].avail))), backgroundColor:muted, stack:'a'},
+  ], 'No channel partner payments for the current filter.', true);
+  const cpOutV = Object.values(cpV).filter(v=>v.out>0.5).sort((a,b)=>b.out-a.out).slice(0,15);
+  hbar('cpOut','chCpOut', cpOutV.map(v=>v.agent), cpOutV.map(v=>L(v.out)), brick, 'No channel partner payments outstanding for the current filter.',
+    k=>{ const rows = cpCert.filter(c=>c.agent===k && c.outstanding>0.5).map(withAge); openDrill('CP outstanding: '+k, `${fmtNum(rows.length)} invoices &middot; ${fmtINRCr(sum(rows,'outstanding'))} outstanding`, 'certOut', rows); });
+  const land = REQ.filter(r=>r.channel===CH_LAND), refs = REQ.filter(r=>r.channel===CH_REF);
+  document.getElementById('cpNote').innerHTML =
+    `Channel Partner = "CP - …" / CP_Sale_Commission activities (Report 1) and Commission &amp; Brokerage / Brokerage Commission (Report 2).` +
+    (refs.length ? ` Customer, employee and other referral payments (${fmtNum(refs.length)}, ${fmtINRCr(sum(refs,'budget'))}) are shown as the separate <b>Referrals</b> channel.` : '') +
+    (land.length ? ` ${fmtNum(land.length)} brokerage payment${land.length===1?'':'s'} (${fmtINRCr(sum(land,'budget'))}) whose remarks mention land or a mediator are kept out of CP as <b>Land Brokerage &amp; Mediator</b>.` : '');
   // Vendors
   const vs = vendorSummary(REQ, CERT);
   const vTop = vs.slice(0,15);
@@ -1199,11 +1300,11 @@ function renderCharts(){
   }
   // Paid by FY (processed date; trend)
   const pfy = {};
-  CERT_DIMS.forEach(c=>{ const f=fyOf(c.processedDate); if(!f || !c.totalPaid) return; (pfy[f.label]=pfy[f.label]||{s:f.sortKey,v:0}).v+=c.totalPaid; });
-  const pfyL = Object.keys(pfy).sort((a,b)=>pfy[a].s-pfy[b].s);
+  CERT_DIMS.forEach(c=>{ if(!c.totalPaid || !matchPeriodIso(c.processedDate)) return; const f=periodBucket(c.processedDate); if(!f) return; (pfy[f.label]=pfy[f.label]||{s:f.s,v:0}).v+=c.totalPaid; });
+  const pfyL = Object.keys(pfy).sort(bySort(pfy));
   const sfy = {};
-  CERT_DIMS.forEach(c=>{ const f=fyOf(c.invoiceDate); if(!f) return; const g=sfy[f.label]=sfy[f.label]||{s:f.sortKey,p:0,x:0}; if(c.source===SRC_PROMO) g.p+=c.totalCertified; else g.x+=c.totalCertified; });
-  const sfyL = Object.keys(sfy).sort((a,b)=>sfy[a].s-sfy[b].s);
+  CERT_DIMS.forEach(c=>{ if(!matchPeriodIso(c.invoiceDate)) return; const f=periodBucket(c.invoiceDate); if(!f) return; const g=sfy[f.label]=sfy[f.label]||{s:f.s,p:0,x:0}; if(c.source===SRC_PROMO) g.p+=c.totalCertified; else g.x+=c.totalCertified; });
+  const sfyL = Object.keys(sfy).sort(bySort(sfy));
   vbar('srcFY','chSourceFY', sfyL, [
     {label:'Promotion certificates', data:sfyL.map(k=>L(sfy[k].p)), backgroundColor:navy, stack:'a'},
     {label:'Expense invoices', data:sfyL.map(k=>L(sfy[k].x)), backgroundColor:gold, stack:'a'},
