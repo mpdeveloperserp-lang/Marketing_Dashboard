@@ -90,6 +90,13 @@
   .filter-field{display:flex;flex-direction:column;gap:5px;min-width:170px;flex:1;}
   .filter-field label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);}
   .filter-bar .btn{flex-shrink:0;}
+  .filter-field.date-range{min-width:300px;max-width:380px;flex:1.4;}
+  .date-pair{display:flex;align-items:center;gap:6px;}
+  .date-pair span{font-size:12px;color:var(--muted);font-weight:600;}
+  .date-pair input{flex:1;min-width:0;padding:8px 9px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;color:var(--ink);background:#fff;}
+  .date-pair input:focus{outline:none;border-color:var(--gold);}
+  .date-pair .date-clear{appearance:none;border:none;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:5px;}
+  .date-pair .date-clear:hover{background:var(--navy-pale);color:var(--navy);}
   .multiselect{position:relative;}
   .multiselect-btn{width:100%;text-align:left;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;color:var(--ink);background:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .multiselect-btn::after{content:'▾';float:right;color:var(--muted);margin-left:8px;}
@@ -227,6 +234,13 @@
         <div class="multiselect" id="fFYWrap"><button type="button" class="multiselect-btn">All Financial Years</button><div class="multiselect-panel"></div></div></div>
       <div class="filter-field"><label>Month</label>
         <div class="multiselect" id="fMonthWrap"><button type="button" class="multiselect-btn">All Months</button><div class="multiselect-panel"></div></div></div>
+      <div class="filter-field date-range"><label>Date (from &ndash; to)</label>
+        <div class="date-pair">
+          <input type="date" id="fDateFrom" aria-label="From date" title="From date">
+          <span>to</span>
+          <input type="date" id="fDateTo" aria-label="To date" title="To date">
+          <button type="button" class="date-clear" id="fDateClear" title="Clear dates" aria-label="Clear dates">&times;</button>
+        </div></div>
       <button class="btn btn-ghost" id="filterClear">Clear filters</button>
       <span class="filter-busy" id="filterBusy" style="display:none;"><span class="spin"></span>Updating...</span>
     </div>
@@ -703,13 +717,20 @@ function setSync(kind, html, showRetry){
   document.getElementById('retryPublishBtn').style.display = showRetry ? '' : 'none';
 }
 let localMeta = null;   // {savedAt, files, published}
+// Machine-readable publish state for the unattended sync tool (mkt-dashboard-sync):
+//   <body data-publish-state="reading|publishing|published|failed" data-publish-detail="…">
+function setPublishState(state, detail){ document.body.dataset.publishState = state; document.body.dataset.publishDetail = detail || ''; }
+// Opened as …/Marketing_Dashboard/?by=Auto%20sync → the publish is labelled in the "Data as of" line.
+const PUBLISHED_BY = (new URLSearchParams(location.search).get('by') || '').slice(0, 80);
 
 async function publish(fileNames){
   if(!DASH_COL){
+    setPublishState('failed', 'Firebase scripts could not be loaded');
     setSync('warn', 'Saved in this browser only — Firebase could not be loaded on this page, so others can\'t see this update yet.<small>Check that gstatic.com isn\'t blocked, then click Retry publish.</small>', true);
     return false;
   }
   setSync('busy', 'Publishing to Firestore… keep this tab open.', false);
+  setPublishState('publishing');
   try{
     const writes=[], chunkCounts={};
     RAW_KEYS.forEach(k=>{
@@ -723,15 +744,19 @@ async function publish(fileNames){
     for(const gr of groups){ const batch=db.batch(); gr.forEach(w=>batch.set(DASH_COL.doc(w.id),{data:w.data})); await withTimeout(batch.commit(), 90000, 'Saving data'); }
     const generatedAt = (localMeta && localMeta.savedAt) || new Date().toISOString();
     // meta is written LAST, so readers never see a half-written upload
-    await withTimeout(DASH_COL.doc(DOC_PREFIX+'meta').set({generatedAt, sourceFiles:fileNames, chunkCounts}), 30000, 'Saving summary');
-    lastPublished = {at:generatedAt, files:fileNames}; updateLastUpdated();
+    const meta = {generatedAt, sourceFiles:fileNames, chunkCounts};
+    if(PUBLISHED_BY) meta.publishedBy = PUBLISHED_BY;
+    await withTimeout(DASH_COL.doc(DOC_PREFIX+'meta').set(meta), 30000, 'Saving summary');
+    lastPublished = {at:generatedAt, files:fileNames, by:PUBLISHED_BY}; updateLastUpdated();
     localMeta = {savedAt:generatedAt, files:fileNames, published:true};
     await idbSet({raw:RAW, ...localMeta});
     setSync('ok', 'Published — everyone with the link now sees this data.', false);
+    setPublishState('published', generatedAt);
     setTimeout(()=>{ if(document.getElementById('syncBanner').classList.contains('ok')) setSync(null); }, 8000);
     return true;
   }catch(err){
     console.error('Publish failed', err);
+    setPublishState('failed', explainFsError(err));
     setSync('warn', 'Saved in this browser, but NOT published — others still see the previous data.<small>'+esc(explainFsError(err))+'</small>', true);
     return false;
   }
@@ -826,6 +851,7 @@ function readWB(file){
 document.getElementById('genBtn').addEventListener('click', async ()=>{
   const errEl = document.getElementById('errMsg'); errEl.style.display='none';
   const btn = document.getElementById('genBtn');
+  setPublishState('reading');
   let next;
   try{
     next = { ...RAW };
@@ -844,6 +870,7 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     console.error(err);
     errEl.textContent = 'Could not read the file(s): '+err.message+'. Report 1 should be the Sales Promotion Requisition Payment export and Report 2 the Expense Requisition Details export from IN4 ERP.';
     errEl.style.display='block';
+    setPublishState('failed', 'Could not read the file(s): '+err.message);
     return;
   }
   RAW = next;
@@ -882,7 +909,11 @@ const FILTERS = [
   {key:'month',    wrap:'fMonthWrap',    all:'All Months'},
 ];
 let filterState = {}; const filterOptions = {};
-function resetFilters(){ FILTERS.forEach(f=>filterState[f.key]=[]); }
+function resetFilters(){
+  FILTERS.forEach(f=>filterState[f.key]=[]);
+  filterState.dateFrom = ''; filterState.dateTo = '';
+  ['fDateFrom','fDateTo'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+}
 resetFilters();
 function msRender(f){
   const wrap = document.getElementById(f.wrap), panel = wrap.querySelector('.multiselect-panel'), btn = wrap.querySelector('.multiselect-btn');
@@ -911,6 +942,22 @@ function buildFilterOptions(){
   filterOptions.fy = [...fy.entries()].sort((a,b)=>a[1]-b[1]).map(([l])=>({value:l,label:l}));
   buildMonthOptions();
   FILTERS.forEach(f=>{ wireMs(f); msRender(f); });
+  // Date pickers: limit to the dates present in the data, and wire them once.
+  const ds = U.req.concat(U.adv).map(r=>r.requestDate).filter(Boolean).sort();
+  const from = document.getElementById('fDateFrom'), to = document.getElementById('fDateTo');
+  if(ds.length){ from.min = to.min = ds[0]; from.max = to.max = ds[ds.length-1]; }
+  if(!from.dataset.wired){
+    from.dataset.wired = '1';
+    const onDate = () => {
+      let a = from.value || '', b = to.value || '';
+      if(a && b && a > b){ [a, b] = [b, a]; from.value = a; to.value = b; }   // picked backwards → swap
+      to.min = a || from.min;
+      filterState.dateFrom = a; filterState.dateTo = b;
+      deferRender();
+    };
+    from.addEventListener('change', onDate); to.addEventListener('change', onDate);
+    document.getElementById('fDateClear').addEventListener('click', ()=>{ from.value=''; to.value=''; onDate(); });
+  }
 }
 function buildMonthOptions(){
   const mm = new Map();
@@ -942,23 +989,38 @@ function deferRender(){
 function matchDims(r){
   return FILTERS.every(f=> !f.field || !filterState[f.key].length || filterState[f.key].includes(r[f.field]));
 }
-function matchDate(r){
-  const fy = filterState.fy, mo = filterState.month;
-  if(!fy.length && !mo.length) return true;
-  if(mo.length){ const m = monthOf(r.requestDate); return !!m && mo.includes(m.key); }
-  const f = fyOf(r.requestDate); return !!f && fy.includes(f.label);
+// Date range (From / To) is applied ON TOP of Financial Year / Month: a row must pass both.
+// Dates are stored as ISO "YYYY-MM-DD", so a plain string comparison is a correct date comparison.
+const dateRangeActive = () => !!(filterState.dateFrom || filterState.dateTo);
+function inDateRange(iso){
+  if(!dateRangeActive()) return true;
+  if(!iso) return false;
+  if(filterState.dateFrom && iso < filterState.dateFrom) return false;
+  if(filterState.dateTo && iso > filterState.dateTo) return false;
+  return true;
 }
-const periodActive = () => filterState.fy.length>0 || filterState.month.length>0;
-// Same FY / Month test as matchDate(), but on any date field (processed date, invoice date…)
 function matchPeriodIso(iso){
+  if(!inDateRange(iso)) return false;
   const fy = filterState.fy, mo = filterState.month;
   if(!fy.length && !mo.length) return true;
   if(mo.length){ const m = monthOf(iso); return !!m && mo.includes(m.key); }
   const f = fyOf(iso); return !!f && fy.includes(f.label);
 }
+function matchDate(r){ return matchPeriodIso(r.requestDate); }
+const periodActive = () => filterState.fy.length>0 || filterState.month.length>0 || dateRangeActive();
+// A short custom range (both ends set, 62 days or less) is charted day by day instead of month by month.
+function dayMode(){
+  if(!filterState.dateFrom || !filterState.dateTo) return false;
+  return (new Date(filterState.dateTo) - new Date(filterState.dateFrom)) / 86400000 <= 62;
+}
+function dayOf(iso){
+  const d = parseDateAny(iso); if(!d) return null;
+  return { key: toISO(d), label: d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) };
+}
 // Trend charts: one bar per financial year when no period is chosen; one bar per MONTH of the
 // selected FY(s) / month(s) once a period is chosen — so they follow the filter instead of staying cumulative.
 function periodBucket(iso){
+  if(dayMode()){ const d = dayOf(iso); return d ? {label:d.label, s:d.key} : null; }
   if(periodActive()){ const m = monthOf(iso); return m ? {label:m.label, s:m.key} : null; }
   const f = fyOf(iso); return f ? {label:f.label, s:String(f.sortKey)} : null;
 }
@@ -1030,10 +1092,11 @@ function renderFilterSummary(){
   ['source','company','project','channel','activity'].forEach(k=>filterState[k].forEach(v=>chips.push(v)));
   if(filterState.month.length) filterState.month.forEach(v=>{ const o=filterOptions.month.find(x=>x.value===v); chips.push(o?o.label:v); });
   else filterState.fy.forEach(v=>chips.push(v));
+  if(dateRangeActive()) chips.push((filterState.dateFrom ? fmtDate(filterState.dateFrom) : 'Start') + ' → ' + (filterState.dateTo ? fmtDate(filterState.dateTo) : 'Today'));
   const el = document.getElementById('filterSummary');
   if(!chips.length){ el.style.display='none'; return; }
   el.style.display='flex';
-  el.innerHTML = chips.map(c=>`<span class="filter-chip">${esc(c)}</span>`).join('') + `<span class="filter-note">Financial Year / Month go by Promotion Request Date (Report 1) and Invoice Date (Report 2). Trend charts switch from yearly to month-wise bars for the selected period.</span>`;
+  el.innerHTML = chips.map(c=>`<span class="filter-chip">${esc(c)}</span>`).join('') + `<span class="filter-note">Financial Year, Month and Date go by Promotion Request Date (Report 1) and Invoice Date (Report 2). Trend charts switch from yearly to month-wise bars for the selected period (day-wise for a date range of up to 2 months).</span>`;
 }
 function bySource(rows, k){ let p=0,x=0; rows.forEach(r=>{ if(r.source===SRC_PROMO) p+=(r[k]||0); else x+=(r[k]||0); }); return {p,x,t:p+x}; }
 const hasExp = () => U.req.some(r=>r.source===SRC_EXP) || U.adv.length>0;
@@ -1209,7 +1272,7 @@ function channelColors(){ return { 'Agencies & Retainers':css('--navy'), 'Digita
 function openFilteredDrill(title, rows){ openDrill(title, `${fmtNum(rows.length)} requisitions &middot; ${fmtINRCr(sum(rows,'budget'))} committed`, 'req', rows); }
 function renderCharts(){
   const navy=css('--navy'), gold=css('--gold'), brick=css('--brick'), teal=css('--teal'), muted='#A9AECF';
-  document.querySelectorAll('.pw').forEach(s=>s.textContent = periodActive() ? 'month' : 'financial year');
+  document.querySelectorAll('.pw').forEach(s=>s.textContent = dayMode() ? 'day' : periodActive() ? 'month' : 'financial year');
   // Committed by FY — or by month within the selected period
   const fyG = {};
   REQ.forEach(r=>{ const f=periodBucket(r.requestDate); if(!f) return; const g=fyG[f.label]=fyG[f.label]||{s:f.s,paid:0,out:0,avail:0}; g.paid+=r.totalPaid; g.out+=r.outstanding; g.avail+=r.available; });
